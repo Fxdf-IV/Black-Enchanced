@@ -1,4 +1,5 @@
-import { stageFilesToOpfs, checkOpfsCached, streamAssetsFromRemote } from "./opfs_loader.js";
+import { stageFilesToOpfs, checkOpfsCached, streamAssetsFromRemote, readOpfsJson } from "./opfs_loader.js";
+import { SoloCampaignEngine } from "./solo_campaign.js";
 import {
   MsgType,
   WebRtcTransport,
@@ -26,6 +27,7 @@ const WEAPONS = [
 ];
 
 const state = {
+  playMode: "solo", // "solo" | "mp"
   role: "offline", // "offline" | "host" | "client"
   roomCode: "VEX401",
   playerName: `OP-${Math.floor(10 + Math.random() * 89)}`,
@@ -48,7 +50,97 @@ const state = {
   pingNonce: 1,
   webgpuReady: false,
   gpuAdapterName: "Verificando...",
+  soloEngine: null,
+  cachedMissionData: null,
+  lastSoloFrameMs: 0,
 };
+
+function setTextIfChanged(id, value) {
+  const el = document.getElementById(id);
+  if (el && el.textContent !== value) {
+    el.textContent = value;
+  }
+}
+
+function updateSoloHud(hud) {
+  if (!hud) return;
+  setTextIfChanged("solo-sector-title", hud.sectorName);
+  const statusSuffix = hud.dead
+    ? " [OPERADOR CAIDO — PRESSIONE R PARA REINICIAR]"
+    : hud.completed
+      ? " [MISSAO CUMPRIDA! PRESSIONE R PARA JOGAR NOVAMENTE]"
+      : "";
+  setTextIfChanged("solo-objective-text", `${hud.objective}${statusSuffix}`);
+  setTextIfChanged("hud-hp", `${hud.hp} HP · ${hud.armor} ARM`);
+  const ammoTxt = hud.reloading
+    ? `${hud.weaponName} · RECARREGANDO...`
+    : `${hud.weaponName} · ${hud.mag}/${hud.reserve} · ${hud.grenades}G`;
+  setTextIfChanged("hud-ammo", ammoTxt);
+  setTextIfChanged("hud-enemies", `${hud.enemiesAlive}/${hud.enemiesTotal} VIVOS`);
+  setTextIfChanged("hud-score", `${hud.kills} KILLS · ${hud.barrelsBlown} BARRIS`);
+}
+
+function ensureSoloEngine() {
+  if (!state.soloEngine) {
+    state.soloEngine = new SoloCampaignEngine({
+      onLog: logLine,
+      onHudUpdate: updateSoloHud,
+    });
+  }
+  return state.soloEngine;
+}
+
+function restartSoloMission() {
+  const engine = ensureSoloEngine();
+  if (state.cachedMissionData) {
+    engine.loadMission(state.cachedMissionData);
+    updateSoloHud(engine.getHudSnapshot());
+    return true;
+  }
+  return false;
+}
+
+function setPlayMode(mode, startMpIfNeeded = true) {
+  const isSolo = mode !== "mp";
+  state.playMode = isSolo ? "solo" : "mp";
+  state.lastSoloFrameMs = 0;
+
+  document.getElementById("btn-mode-solo")?.classList.toggle("btn-primary", isSolo);
+  document.getElementById("btn-mode-mp")?.classList.toggle("btn-primary", !isSolo);
+
+  const soloHint = document.getElementById("solo-controls-hint");
+  const mpHint = document.getElementById("mp-controls-hint");
+  const soloHud = document.getElementById("solo-hud-panel");
+  const mpScore = document.getElementById("mp-scoreboard-panel");
+  const tag = document.getElementById("viewport-mode-tag");
+
+  if (soloHint) soloHint.style.display = isSolo ? "" : "none";
+  if (mpHint) mpHint.style.display = isSolo ? "none" : "";
+  if (soloHud) soloHud.style.display = isSolo ? "" : "none";
+  if (mpScore) mpScore.style.display = isSolo ? "none" : "";
+  if (tag) {
+    tag.textContent = isSolo
+      ? "SOLO 3D // MISSAO 01: TRENESKA"
+      : "KPOOL 0x002D1980 + 0x7980";
+  }
+
+  const canvas = document.getElementById("tactical-canvas");
+  if (!isSolo && canvas && document.pointerLockElement === canvas) {
+    document.exitPointerLock?.();
+  }
+
+  if (state.soloEngine) {
+    state.soloEngine.active = isSolo;
+    state.soloEngine.keys.clear();
+    state.soloEngine.mouseDownLeft = false;
+    state.soloEngine.mouseDownRight = false;
+  }
+  state.keys.clear();
+
+  if (!isSolo && startMpIfNeeded && !state.transport) {
+    startSession("host");
+  }
+}
 
 function logLine(tag, text) {
   const logEl = document.getElementById("event-log");
@@ -376,6 +468,7 @@ function recordRx(uint8) {
 }
 
 function stepSimulationTick() {
+  if (state.playMode !== "mp") return;
   state.tick += 1;
   const local = state.players.get(state.localPlayerId);
 
@@ -519,9 +612,40 @@ function triggerFire() {
   }
 }
 
-function renderArena() {
+function renderArena(nowMs) {
   const canvas = document.getElementById("tactical-canvas");
   if (!canvas) return;
+
+  if (state.playMode === "solo") {
+    const t = typeof nowMs === "number" ? nowMs : performance.now();
+    const dt = state.lastSoloFrameMs
+      ? Math.min(0.05, Math.max(0.001, (t - state.lastSoloFrameMs) / 1000))
+      : 1 / 60;
+    state.lastSoloFrameMs = t;
+
+    const engine = ensureSoloEngine();
+    if (engine.mission) {
+      engine.update(dt);
+      engine.render(canvas);
+    } else {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.fillStyle = "#0b0c0e";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#f59e0b";
+      ctx.font = "600 14px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("SINCRONIZANDO OPFS & MISSÃO TRENESKA...", w * 0.5, h * 0.5 - 6);
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "400 11px 'JetBrains Mono', monospace";
+      ctx.fillText("Aguarde o stream automático para o OPFS.", w * 0.5, h * 0.5 + 16);
+      ctx.textAlign = "left";
+    }
+    requestAnimationFrame(renderArena);
+    return;
+  }
+
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
@@ -672,62 +796,117 @@ function updateScoreboard() {
   }
 }
 
+async function loadSoloMission() {
+  let missionData = null;
+  try {
+    missionData = await readOpfsJson("levels/treneska/mission.json");
+  } catch {}
+
+  if (!missionData) {
+    try {
+      const res = await fetch("/game_assets/levels/treneska/mission.json");
+      if (res.ok) {
+        missionData = await res.json();
+      }
+    } catch {}
+  }
+
+  if (missionData) {
+    state.cachedMissionData = missionData;
+    const engine = ensureSoloEngine();
+    engine.loadMission(missionData);
+    updateSoloHud(engine.getHudSnapshot());
+    return true;
+  }
+  return false;
+}
+
+function requestCanvasPointerLock(canvas) {
+  if (!canvas || !canvas.requestPointerLock) return;
+  try {
+    const maybePromise = canvas.requestPointerLock();
+    if (maybePromise && typeof maybePromise.catch === "function") {
+      maybePromise.catch(() => {});
+    }
+  } catch {}
+}
+
 async function initAssetPipeline() {
   const statusEl = document.getElementById("opfs-status");
   const barEl = document.getElementById("asset-progress-bar");
   const playBtn = document.getElementById("btn-auto-play");
 
-  // 1. Verifica se já está em cache no OPFS local
-  const cachedCheck = await checkOpfsCached();
-  if (cachedCheck.cached) {
+  // 1. Verifica se default.xbe e a missão Treneska já estão no OPFS local
+  const cachedCheck = await checkOpfsCached().catch(() => ({ cached: false, sizeBytes: 0 }));
+  const cachedMission = cachedCheck.cached
+    ? await readOpfsJson("levels/treneska/mission.json").catch(() => null)
+    : null;
+
+  if (cachedCheck.cached && cachedMission) {
     if (barEl) barEl.style.width = "100%";
     if (statusEl) {
-      statusEl.textContent = `Pronto! default.xbe verificado no OPFS (${(cachedCheck.sizeBytes / (1024 * 1024)).toFixed(2)} MB).`;
+      statusEl.textContent = `Pronto! default.xbe + Treneska verificados no OPFS (${(cachedCheck.sizeBytes / 1024).toFixed(1)} KB).`;
     }
     if (playBtn) {
-      playBtn.textContent = "▶ ENTRAR NO COMBATE (PRONTO)";
-      playBtn.classList.remove("btn-primary");
-      playBtn.classList.add("btn-primary");
+      playBtn.textContent = "▶ JOGAR CAMPANHA 3D (PRONTO)";
     }
+    await loadSoloMission();
     return;
   }
 
-  // 2. Se não estiver em cache, verifica se o servidor local ou CDN possui o manifesto
+  // 2. Se não estiver em cache, faz o auto-stream imediato a partir do manifesto do servidor
   try {
     const res = await fetch("/api/manifest");
     if (res.ok) {
       const manifest = await res.json();
       if (manifest.available && manifest.files && manifest.files.length > 0) {
-        const totalMb = (manifest.total_bytes / (1024 * 1024)).toFixed(1);
+        const totalKb = (manifest.total_bytes / 1024).toFixed(1);
         if (statusEl) {
-          statusEl.textContent = `${manifest.files.length} arquivos disponíveis (${totalMb} MB). Clique abaixo para sincronizar e jogar instantaneamente.`;
+          statusEl.textContent = `Sincronizando ${manifest.files.length} arquivos (${totalKb} KB) para o OPFS...`;
         }
-        if (playBtn) {
-          playBtn.textContent = `⟳ BAIXAR DADOS DO JOGO (${totalMb} MB) & JOGAR`;
-        }
+        await triggerAutoStream(true);
         return;
       }
     }
   } catch {}
 
-  // 3. Caso o servidor não tenha os arquivos na pasta assets/ ainda
+  // 3. Fallback caso o servidor não exponha /api/manifest
+  const loadedFallback = await loadSoloMission();
   if (statusEl) {
-    statusEl.textContent = "Nenhum arquivo no servidor ainda. Coloque sua cópia de BLACK em assets/ do servidor ou use a opção manual abaixo.";
+    statusEl.textContent = loadedFallback
+      ? "Missão carregada diretamente. (OPFS offline)."
+      : "Nenhum arquivo encontrado em assets/ do servidor.";
   }
   if (playBtn) {
-    playBtn.textContent = "▶ ENTRAR NA ARENA (SIMULAÇÃO P2P)";
+    playBtn.textContent = "▶ JOGAR CAMPANHA 3D";
   }
 }
 
-async function triggerAutoStream() {
+async function triggerAutoStream(silent = false) {
+  const isSilent = silent === true;
   const statusEl = document.getElementById("opfs-status");
   const barEl = document.getElementById("asset-progress-bar");
   const playBtn = document.getElementById("btn-auto-play");
+  const canvas = document.getElementById("tactical-canvas");
 
-  const cachedCheck = await checkOpfsCached();
-  if (cachedCheck.cached) {
-    logLine("OPFS", "Iniciando partida com assets do OPFS local...");
-    document.getElementById("tactical-canvas")?.scrollIntoView({ behavior: "smooth" });
+  if (!isSilent) {
+    ensureSoloEngine().audio.unlock();
+  }
+
+  const cachedCheck = await checkOpfsCached().catch(() => ({ cached: false }));
+  const cachedMission = cachedCheck.cached
+    ? await readOpfsJson("levels/treneska/mission.json").catch(() => null)
+    : null;
+
+  if (cachedCheck.cached && cachedMission) {
+    if (!state.soloEngine?.mission) {
+      await loadSoloMission();
+    }
+    if (!isSilent) {
+      if (state.playMode !== "solo") setPlayMode("solo");
+      canvas?.scrollIntoView({ behavior: "smooth", block: "center" });
+      requestCanvasPointerLock(canvas);
+    }
     return;
   }
 
@@ -738,44 +917,74 @@ async function triggerAutoStream() {
 
   try {
     const result = await streamAssetsFromRemote("", ({ count, totalFiles, downloadedBytes, totalBytes, percent, currentFile }) => {
-      const dlMb = (downloadedBytes / (1024 * 1024)).toFixed(1);
-      const totMb = (totalBytes / (1024 * 1024)).toFixed(1);
+      const dlKb = (downloadedBytes / 1024).toFixed(1);
+      const totKb = (totalBytes / 1024).toFixed(1);
       if (barEl) barEl.style.width = `${Math.min(100, percent).toFixed(1)}%`;
       if (statusEl) {
-        statusEl.textContent = `[${count}/${totalFiles}] ${currentFile} (${dlMb}/${totMb} MB - ${percent.toFixed(0)}%)`;
+        statusEl.textContent = `[${count}/${totalFiles}] ${currentFile} (${dlKb}/${totKb} KB - ${percent.toFixed(0)}%)`;
       }
     });
 
     if (result.success) {
       if (barEl) barEl.style.width = "100%";
+      await loadSoloMission();
       if (statusEl) {
-        statusEl.textContent = `Download concluído! ${result.stagedFiles} arquivos salvos no OPFS.`;
+        statusEl.textContent = `Pronto! ${result.stagedFiles} arquivos validados e gravados no OPFS.`;
       }
       if (playBtn) {
         playBtn.disabled = false;
-        playBtn.textContent = "▶ ENTRAR NO COMBATE (PRONTO)";
+        playBtn.textContent = "▶ JOGAR CAMPANHA 3D (PRONTO)";
       }
-      logLine("OPFS", `Auto-stream concluído com sucesso: ${result.stagedFiles} arquivos gravados no OPFS.`);
+      logLine("OPFS", `Auto-stream concluído: ${result.stagedFiles} arquivos gravados e missão Treneska pronta.`);
+      if (!isSilent) {
+        if (state.playMode !== "solo") setPlayMode("solo");
+        canvas?.scrollIntoView({ behavior: "smooth", block: "center" });
+        requestCanvasPointerLock(canvas);
+      }
     } else {
+      await loadSoloMission();
       if (statusEl) statusEl.textContent = result.reason;
       if (playBtn) {
         playBtn.disabled = false;
-        playBtn.textContent = "▶ ENTRAR NA ARENA (SIMULAÇÃO P2P)";
+        playBtn.textContent = "▶ JOGAR CAMPANHA 3D";
       }
     }
   } catch (err) {
+    await loadSoloMission();
     if (statusEl) statusEl.textContent = `Erro no download: ${err.message}`;
     if (playBtn) {
       playBtn.disabled = false;
-      playBtn.textContent = "▶ ENTRAR NA ARENA (SIMULAÇÃO P2P)";
+      playBtn.textContent = "▶ JOGAR CAMPANHA 3D";
     }
   }
 }
 
 function bindEvents() {
-  document.getElementById("btn-auto-play")?.addEventListener("click", triggerAutoStream);
-  document.getElementById("btn-host-room")?.addEventListener("click", () => startSession("host"));
-  document.getElementById("btn-join-room")?.addEventListener("click", () => startSession("client"));
+  document.getElementById("btn-auto-play")?.addEventListener("click", () => triggerAutoStream(false));
+  document.getElementById("btn-mode-solo")?.addEventListener("click", () => setPlayMode("solo"));
+  document.getElementById("btn-mode-mp")?.addEventListener("click", () => setPlayMode("mp"));
+
+  document.getElementById("btn-solo-restart")?.addEventListener("click", () => {
+    ensureSoloEngine().audio.unlock();
+    restartSoloMission();
+  });
+
+  const muteBtn = document.getElementById("btn-solo-mute");
+  muteBtn?.addEventListener("click", () => {
+    const engine = ensureSoloEngine();
+    engine.audio.unlock();
+    engine.audio.muted = !engine.audio.muted;
+    muteBtn.textContent = engine.audio.muted ? "SOM: OFF" : "SOM: ON";
+  });
+
+  document.getElementById("btn-host-room")?.addEventListener("click", () => {
+    setPlayMode("mp", false);
+    startSession("host");
+  });
+  document.getElementById("btn-join-room")?.addEventListener("click", () => {
+    setPlayMode("mp", false);
+    startSession("client");
+  });
 
   const fileInput = document.getElementById("xbe-file-input");
   document.getElementById("btn-pick-files")?.addEventListener("click", () => fileInput?.click());
@@ -801,10 +1010,37 @@ function bindEvents() {
     } else if (statusEl) {
       statusEl.textContent = `${res.stagedFiles} arquivo(s) (${mb} MB) copiados ao OPFS local. (Inclua default.xbe para validar o Title ID 0x45410083).`;
     }
+    await loadSoloMission();
   });
+
+  const canvas = document.getElementById("tactical-canvas");
 
   window.addEventListener("keydown", (e) => {
     if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+
+    if (state.playMode === "solo") {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"].includes(e.code)) {
+        e.preventDefault();
+      }
+      const engine = ensureSoloEngine();
+      engine.audio.unlock();
+      engine.keys.add(e.code);
+
+      if (e.code === "Digit1") engine.weaponIdx = 0;
+      if (e.code === "Digit2") engine.weaponIdx = 1;
+      if (e.code === "Digit3") engine.weaponIdx = 2;
+      if (e.code === "KeyR") {
+        if (engine.playerDead || engine.missionCompleted) {
+          restartSoloMission();
+        } else {
+          engine.startReload();
+        }
+      }
+      if (e.code === "KeyG") engine.throwGrenade();
+      if (e.code === "Tab") engine.topDownMode = !engine.topDownMode;
+      return;
+    }
+
     state.keys.add(e.code);
     if (e.code === "Digit1") state.selectedWeapon = 0;
     if (e.code === "Digit2") state.selectedWeapon = 1;
@@ -813,10 +1049,44 @@ function bindEvents() {
 
   window.addEventListener("keyup", (e) => {
     state.keys.delete(e.code);
+    state.soloEngine?.keys.delete(e.code);
   });
 
-  const canvas = document.getElementById("tactical-canvas");
+  window.addEventListener("blur", () => {
+    state.keys.clear();
+    if (state.soloEngine) {
+      state.soloEngine.keys.clear();
+      state.soloEngine.mouseDownLeft = false;
+      state.soloEngine.mouseDownRight = false;
+    }
+  });
+
+  document.addEventListener("pointerlockchange", () => {
+    if (state.soloEngine) {
+      state.soloEngine.pointerLocked = document.pointerLockElement === canvas;
+      if (!state.soloEngine.pointerLocked) {
+        state.soloEngine.mouseDownLeft = false;
+        state.soloEngine.mouseDownRight = false;
+      }
+    }
+  });
+
+  canvas?.addEventListener("contextmenu", (e) => {
+    if (state.playMode === "solo") e.preventDefault();
+  });
+
   canvas?.addEventListener("mousemove", (e) => {
+    if (state.playMode === "solo") {
+      if (document.pointerLockElement === canvas && state.soloEngine) {
+        state.soloEngine.player.yaw += (e.movementX || 0) * 0.0024;
+        state.soloEngine.player.pitch = Math.max(
+          -0.55,
+          Math.min(0.55, state.soloEngine.player.pitch - (e.movementY || 0) * 0.0018),
+        );
+      }
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const nx = (e.clientX - rect.left) / rect.width;
     const nz = (e.clientY - rect.top) / rect.height;
@@ -825,17 +1095,40 @@ function bindEvents() {
   });
 
   canvas?.addEventListener("mousedown", (e) => {
+    if (state.playMode === "solo") {
+      const engine = ensureSoloEngine();
+      engine.audio.unlock();
+      if (e.button === 0) {
+        engine.mouseDownLeft = true;
+        if (document.pointerLockElement !== canvas) {
+          requestCanvasPointerLock(canvas);
+        } else {
+          engine.fireWeapon();
+        }
+      } else if (e.button === 2) {
+        engine.mouseDownRight = true;
+      }
+      return;
+    }
+
     if (e.button === 0) triggerFire();
+  });
+
+  window.addEventListener("mouseup", (e) => {
+    if (state.soloEngine) {
+      if (e.button === 0) state.soloEngine.mouseDownLeft = false;
+      if (e.button === 2) state.soloEngine.mouseDownRight = false;
+    }
   });
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  ensureSoloEngine();
   bindEvents();
+  setPlayMode("solo");
   await detectBrowserCapabilities();
   await initAssetPipeline();
 
-  // Inicia com operador local em modo Host pronto para receber outras abas na mesma sala
-  startSession("host");
   setInterval(stepSimulationTick, 1000 / 30);
   requestAnimationFrame(renderArena);
 });

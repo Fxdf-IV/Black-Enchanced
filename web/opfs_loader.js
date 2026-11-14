@@ -195,3 +195,21 @@ export async function streamAssetsFromRemote(baseUrl = "", onProgress) {
     xbeReport,
   };
 }
+
+export async function readOpfsJson(relPath) {
+  if (!navigator.storage || !navigator.storage.getDirectory) return null;
+  try {
+    const root = await navigator.storage.getDirectory();
+    let dir = await root.getDirectoryHandle("black_assets", { create: false });
+    const segments = relPath.replace(/\\/g, "/").split("/").filter(Boolean);
+    const fileName = segments.pop();
+    for (const seg of segments) {
+      dir = await dir.getDirectoryHandle(seg, { create: false });
+    }
+    const handle = await dir.getFileHandle(fileName, { create: false });
+    const file = await handle.getFile();
+    return JSON.parse(await file.text());
+  } catch {
+    return null;
+  }
+}

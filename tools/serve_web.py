@@ -12,9 +12,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gen_homebrew_xbe
 
 
 class EnhancedWebHandler(SimpleHTTPRequestHandler):
@@ -29,10 +33,11 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self) -> None:
-        if self.path == "/api/manifest":
+        clean_path = self.path.split("?", 1)[0]
+        if clean_path == "/api/manifest":
             self.handle_manifest()
             return
-        if self.path.startswith("/game_assets/"):
+        if clean_path.startswith("/game_assets/"):
             self.handle_game_asset()
             return
         super().do_GET()
@@ -104,7 +109,10 @@ def main() -> int:
 
     data_dir_path = Path(args.data) if args.data else (repo_root / "assets")
     if not data_dir_path.exists():
-        data_dir_path = None
+        print(f"[serve_web] Pasta informada não encontrada ({data_dir_path}). Gerando pacote aberto padrão em assets/...")
+        data_dir_path = gen_homebrew_xbe.generate_assets(repo_root)
+    elif not (data_dir_path / "default.xbe").is_file() and data_dir_path == (repo_root / "assets"):
+        gen_homebrew_xbe.generate_assets(repo_root)
 
     EnhancedWebHandler.data_dir = data_dir_path
     EnhancedWebHandler.cdn_url = args.cdn_url
