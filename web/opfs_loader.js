@@ -101,3 +101,97 @@ export async function stageFilesToOpfs(fileList, onProgress) {
     xbeReport,
   };
 }
+
+export async function checkOpfsCached() {
+  if (!navigator.storage || !navigator.storage.getDirectory) {
+    return { cached: false, reason: "OPFS não suportado neste navegador." };
+  }
+  try {
+    const root = await navigator.storage.getDirectory();
+    const dir = await root.getDirectoryHandle("black_assets", { create: false });
+    const xbeHandle = await dir.getFileHandle("default.xbe", { create: false });
+    const file = await xbeHandle.getFile();
+    const buf = await file.arrayBuffer();
+    const info = inspectXbeHeader(buf);
+    if (info.valid) {
+      return { cached: true, info, sizeBytes: file.size };
+    }
+    return { cached: false, reason: info.reason };
+  } catch {
+    return { cached: false, reason: "Nenhum asset gravado ainda no OPFS." };
+  }
+}
+
+export async function streamAssetsFromRemote(baseUrl = "", onProgress) {
+  let root = null;
+  if (navigator.storage && navigator.storage.getDirectory) {
+    root = await navigator.storage.getDirectory();
+  }
+  if (!root) {
+    throw new Error("OPFS não suportado pelo navegador.");
+  }
+
+  const manifestRes = await fetch(`${baseUrl}/api/manifest`);
+  if (!manifestRes.ok) {
+    throw new Error(`Falha ao obter manifesto de assets: HTTP ${manifestRes.status}`);
+  }
+  const manifest = await manifestRes.json();
+  if (!manifest.available || !manifest.files || manifest.files.length === 0) {
+    return { success: false, reason: "Manifesto de assets ainda não disponível no servidor.", manifest };
+  }
+
+  let totalBytes = manifest.total_bytes || 0;
+  let downloadedBytes = 0;
+  let count = 0;
+  let xbeReport = null;
+
+  for (const item of manifest.files) {
+    const relPath = item.path.replace(/\\/g, "/");
+    const fileUrl = manifest.cdn_url ? `${manifest.cdn_url}/${relPath}` : `${baseUrl}/game_assets/${relPath}`;
+
+    const res = await fetch(fileUrl);
+    if (!res.ok) {
+      throw new Error(`Erro baixando ${relPath}: HTTP ${res.status}`);
+    }
+    const buf = await res.arrayBuffer();
+
+    const segments = relPath.split("/").filter(Boolean);
+    const fileName = segments.pop();
+    let dir = await root.getDirectoryHandle("black_assets", { create: true });
+    for (const seg of segments) {
+      dir = await dir.getDirectoryHandle(seg, { create: true });
+    }
+    const handle = await dir.getFileHandle(fileName, { create: true });
+    if (handle.createWritable) {
+      const writable = await handle.createWritable();
+      await writable.write(buf);
+      await writable.close();
+    }
+
+    if (fileName.toLowerCase() === "default.xbe") {
+      const info = inspectXbeHeader(buf);
+      const hash = await sha256Hex(buf);
+      xbeReport = { ...info, sha256: hash, path: relPath };
+    }
+
+    downloadedBytes += buf.byteLength;
+    count++;
+    if (onProgress) {
+      onProgress({
+        count,
+        totalFiles: manifest.files.length,
+        downloadedBytes,
+        totalBytes,
+        percent: totalBytes > 0 ? (downloadedBytes / totalBytes) * 100 : 100,
+        currentFile: relPath,
+      });
+    }
+  }
+
+  return {
+    success: true,
+    stagedFiles: count,
+    totalBytes: downloadedBytes,
+    xbeReport,
+  };
+}

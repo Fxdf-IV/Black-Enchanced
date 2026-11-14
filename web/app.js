@@ -1,4 +1,4 @@
-import { stageFilesToOpfs } from "./opfs_loader.js";
+import { stageFilesToOpfs, checkOpfsCached, streamAssetsFromRemote } from "./opfs_loader.js";
 import {
   MsgType,
   WebRtcTransport,
@@ -672,7 +672,108 @@ function updateScoreboard() {
   }
 }
 
+async function initAssetPipeline() {
+  const statusEl = document.getElementById("opfs-status");
+  const barEl = document.getElementById("asset-progress-bar");
+  const playBtn = document.getElementById("btn-auto-play");
+
+  // 1. Verifica se já está em cache no OPFS local
+  const cachedCheck = await checkOpfsCached();
+  if (cachedCheck.cached) {
+    if (barEl) barEl.style.width = "100%";
+    if (statusEl) {
+      statusEl.textContent = `Pronto! default.xbe verificado no OPFS (${(cachedCheck.sizeBytes / (1024 * 1024)).toFixed(2)} MB).`;
+    }
+    if (playBtn) {
+      playBtn.textContent = "▶ ENTRAR NO COMBATE (PRONTO)";
+      playBtn.classList.remove("btn-primary");
+      playBtn.classList.add("btn-primary");
+    }
+    return;
+  }
+
+  // 2. Se não estiver em cache, verifica se o servidor local ou CDN possui o manifesto
+  try {
+    const res = await fetch("/api/manifest");
+    if (res.ok) {
+      const manifest = await res.json();
+      if (manifest.available && manifest.files && manifest.files.length > 0) {
+        const totalMb = (manifest.total_bytes / (1024 * 1024)).toFixed(1);
+        if (statusEl) {
+          statusEl.textContent = `${manifest.files.length} arquivos disponíveis (${totalMb} MB). Clique abaixo para sincronizar e jogar instantaneamente.`;
+        }
+        if (playBtn) {
+          playBtn.textContent = `⟳ BAIXAR DADOS DO JOGO (${totalMb} MB) & JOGAR`;
+        }
+        return;
+      }
+    }
+  } catch {}
+
+  // 3. Caso o servidor não tenha os arquivos na pasta assets/ ainda
+  if (statusEl) {
+    statusEl.textContent = "Nenhum arquivo no servidor ainda. Coloque sua cópia de BLACK em assets/ do servidor ou use a opção manual abaixo.";
+  }
+  if (playBtn) {
+    playBtn.textContent = "▶ ENTRAR NA ARENA (SIMULAÇÃO P2P)";
+  }
+}
+
+async function triggerAutoStream() {
+  const statusEl = document.getElementById("opfs-status");
+  const barEl = document.getElementById("asset-progress-bar");
+  const playBtn = document.getElementById("btn-auto-play");
+
+  const cachedCheck = await checkOpfsCached();
+  if (cachedCheck.cached) {
+    logLine("OPFS", "Iniciando partida com assets do OPFS local...");
+    document.getElementById("tactical-canvas")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (playBtn) {
+    playBtn.disabled = true;
+    playBtn.textContent = "BAIXANDO DADOS DE BLACK...";
+  }
+
+  try {
+    const result = await streamAssetsFromRemote("", ({ count, totalFiles, downloadedBytes, totalBytes, percent, currentFile }) => {
+      const dlMb = (downloadedBytes / (1024 * 1024)).toFixed(1);
+      const totMb = (totalBytes / (1024 * 1024)).toFixed(1);
+      if (barEl) barEl.style.width = `${Math.min(100, percent).toFixed(1)}%`;
+      if (statusEl) {
+        statusEl.textContent = `[${count}/${totalFiles}] ${currentFile} (${dlMb}/${totMb} MB - ${percent.toFixed(0)}%)`;
+      }
+    });
+
+    if (result.success) {
+      if (barEl) barEl.style.width = "100%";
+      if (statusEl) {
+        statusEl.textContent = `Download concluído! ${result.stagedFiles} arquivos salvos no OPFS.`;
+      }
+      if (playBtn) {
+        playBtn.disabled = false;
+        playBtn.textContent = "▶ ENTRAR NO COMBATE (PRONTO)";
+      }
+      logLine("OPFS", `Auto-stream concluído com sucesso: ${result.stagedFiles} arquivos gravados no OPFS.`);
+    } else {
+      if (statusEl) statusEl.textContent = result.reason;
+      if (playBtn) {
+        playBtn.disabled = false;
+        playBtn.textContent = "▶ ENTRAR NA ARENA (SIMULAÇÃO P2P)";
+      }
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Erro no download: ${err.message}`;
+    if (playBtn) {
+      playBtn.disabled = false;
+      playBtn.textContent = "▶ ENTRAR NA ARENA (SIMULAÇÃO P2P)";
+    }
+  }
+}
+
 function bindEvents() {
+  document.getElementById("btn-auto-play")?.addEventListener("click", triggerAutoStream);
   document.getElementById("btn-host-room")?.addEventListener("click", () => startSession("host"));
   document.getElementById("btn-join-room")?.addEventListener("click", () => startSession("client"));
 
@@ -731,6 +832,7 @@ function bindEvents() {
 window.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   await detectBrowserCapabilities();
+  await initAssetPipeline();
 
   // Inicia com operador local em modo Host pronto para receber outras abas na mesma sala
   startSession("host");

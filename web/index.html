@@ -245,8 +245,43 @@
       transition: border-color 120ms ease, background 120ms ease;
     }
 
-    .btn:hover {
-      border-color: var(--accent-amber);
+    .btn-large {
+      padding: 14px 20px;
+      font-size: 15px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .progress-bar-wrap {
+      width: 100%;
+      height: 8px;
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+      margin: 4px 0;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent-amber);
+      transition: width 150ms ease;
+    }
+
+    .secondary-link {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-decoration: underline;
+      cursor: pointer;
+      text-align: left;
+      padding: 2px 0;
+    }
+
+    .secondary-link:hover {
+      color: var(--text-primary);
     }
 
     .btn-primary {
@@ -469,17 +504,27 @@
 
       <section class="panel">
         <div class="panel-header">
-          <span class="panel-title">Armazenamento Local OPFS (Zero Upload)</span>
-          <span class="panel-tag">XBEH 0x48454258</span>
+          <span class="panel-title">Dados do Jogo (Auto-Stream / Cache OPFS)</span>
+          <span class="panel-tag">INSTANT PLAY</span>
         </div>
 
-        <div class="btn-row">
-          <button id="btn-pick-files" class="btn" type="button">Selecionar default.xbe / Pasta de BLACK</button>
-          <input id="xbe-file-input" type="file" multiple webkitdirectory style="display: none;" />
+        <button id="btn-auto-play" class="btn btn-primary btn-large" type="button">
+          ▶ ENTRAR NO COMBATE (JOGAR)
+        </button>
+
+        <div class="progress-bar-wrap">
+          <div id="asset-progress-bar" class="progress-bar-fill"></div>
         </div>
 
         <div id="opfs-status" class="opfs-status">
-          Nenhum arquivo carregado. Selecione a pasta local da sua cópia de BLACK (NTSC-U) para validar o default.xbe no OPFS privado do navegador.
+          Verificando cache local no navegador...
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+          <button id="btn-pick-files" class="secondary-link" type="button">
+            Opção manual: selecionar pasta local de BLACK ou mods
+          </button>
+          <input id="xbe-file-input" type="file" multiple webkitdirectory style="display: none;" />
         </div>
 
         <div class="panel-header" style="margin-top: 4px;">
