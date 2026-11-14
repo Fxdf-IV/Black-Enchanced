@@ -1,4 +1,5 @@
 #include "app/app.h"
+#include "kernel/kernel.h"
 #include "mp/mp_bridge.h"
 
 namespace {
@@ -7,8 +8,8 @@ void OnGameInit() {
     mp::InitBridge();
 }
 
-void OnImageLoaded(uint8_t* base) {
-    mp::OnImageLoaded(base);
+void OnImageLoaded() {
+    mp::OnImageLoaded(kernel::g_base);
 }
 
 }  // namespace
@@ -32,4 +33,5 @@ const app::GameInfo app::kGame = {
     .ui = nullptr,
     .pad = nullptr,
     .rumble = nullptr,
+    .releases = {},
 };

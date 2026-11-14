@@ -2,31 +2,55 @@
 // Uma definição forte X86_FUNC(sub_XXXXXXXX) substitui a função gerada pelo recompilador;
 // __imp__sub_XXXXXXXX chama a implementação original.
 //
-// Endereços de referência verificados em docs/re-log.md (fontes: black-seamless-coop [MIT] e auditoria do XBE):
-//   0x0020F6A0  Frame tick principal (entrada de rede antes, snapshot/estado depois)
-//   0x001DB7B0  Disparo de projétil do jogador (primário)
-//   0x001DBD50  Disparo de projétil do jogador (secundário / variante)
-//   0x001DF440  Spawn de personagem (ator)
-//   0x00205C60  Registro / inicialização de ator no spawner
-//   0x001DA240  Morte / baixa de ator (rotina A)
-//   0x001DA1A0  Morte / baixa de ator (rotina B)
-//   0x001E5F70  AI think (cérebro da IA: desligado ou substituído para atores remotos)
-//   0x001CCBB0  Atualização por quadro de personagens
-//   0x001AF880  Spawn de aliado de esquadrão (base para corpo de jogador remoto)
-//   0x001AD440  Percepção de inimigos sobre alvos
-//   0x001D54C0  Morte do jogador local (interceptar em multiplayer para respawn sem tela de falha)
-//   0x001BD360  Estado de queda / abatido do jogador
-//   0x001C6410  Fluxo pós-morte / recarga de checkpoint
-//   0x0002B830  Câmera da cena (espectador / 3ª pessoa)
+// Regra de ouro: quando mp::CurrentRole() == mp::Role::OfflineCampaign (padrão), todo gancho
+// delega imediatamente para a função original sem alterar o estado da campanha.
 
+#include "game/black_addrs.h"
 #include "mp/mp_bridge.h"
 #include "xdk/hle.h"
 
-// Gancho de quadro principal (Critério de aceite da Fase 0: gancho de teste que dispara e registra no log,
-// mantendo a campanha intacta quando Role == OfflineCampaign).
+// 1. Quadro principal (0x0020F6A0): drena pacotes e atualiza atores remotos antes da simulação;
+//    lê e transmite o estado do jogador local depois da simulação.
 X86_EXTERN_FUNC(__imp__sub_0020F6A0);
 X86_FUNC(sub_0020F6A0) {
     mp::OnPreFrame(base);
     __imp__sub_0020F6A0(ctx, base);
     mp::OnPostFrame(base);
+}
+
+// 2. Cérebro de IA (0x001E5F70 — vf0 do controlador de IA):
+//    Teste #2 da Matriz da Fase 2 ("Desligar o cérebro de IA").
+//    Se o controlador em ECX pertence a um ator controlado por jogador remoto, retorna sem executar a IA.
+X86_EXTERN_FUNC(__imp__sub_001E5F70);
+X86_FUNC(sub_001E5F70) {
+    if (mp::ShouldSkipAiThink(ctx.ecx, base)) {
+        // Plain ret (desempilha o endereço de retorno de 32 bits da pilha convidada)
+        ::kernel::Return(ctx, ctx.eax, 0);
+        return;
+    }
+    __imp__sub_001E5F70(ctx, base);
+}
+
+// 3. Morte do jogador local (0x001D54C0 — evento 5 do controlador do jogador):
+//    Teste #7 e #8 da Matriz da Fase 2. Salva o controlador e o nome do jogador antes que 0x001D54C0
+//    os substitua pelo controlador de morte (+0x630), permitindo respawn limpo sem recarregar a fase.
+X86_EXTERN_FUNC(__imp__sub_001D54C0);
+X86_FUNC(sub_001D54C0) {
+    mp::OnLocalPlayerDying(base);
+    __imp__sub_001D54C0(ctx, base);
+}
+
+// 4. Verificação por quadro do estado de morte do jogador (0x001BD360 — vf1 do controlador):
+//    Quando o jogador está com state == 2 (morto), 0x001BD360 pede "Missão Fracassada" (0x001F45C0).
+//    Em partida multiplayer ativa, suprimimos essa chamada para aguardar o RespawnEvent.
+X86_EXTERN_FUNC(__imp__sub_001BD360);
+X86_FUNC(sub_001BD360) {
+    if (mp::ShouldSuppressMissionFailed(base)) {
+        const uint32_t player = black::LocalPlayerAddr(base);
+        if (player && black::R32(base, player + black::kCharState) == 2u) {
+            ::kernel::Return(ctx, ctx.eax, 0);
+            return;
+        }
+    }
+    __imp__sub_001BD360(ctx, base);
 }

@@ -51,3 +51,38 @@ Com a localização do `MuriloDagustin/black-seamless-coop` (MIT) e do `kROM3r/B
 | `sub_001C7620` | `Level_AreaActivate` | `void(X86Context& ctx, uint8_t* base)` | Gatilho de área | Ativação de setores e portas de transição na fase. | Alvo T4 (`coop_world.cpp`). | **Média** | 2026-11-14 · Equipe BE |
 | `sub_001F45C0` | `Level_FlowRequestA` | `void(X86Context& ctx, uint8_t* base)` | Código de requisição de fluxo | Dispara eventos de fim/reinício/continuação de missão. | Alvo T4 (`coop_world.cpp`). | **Média** | 2026-11-14 · Equipe BE |
 | `sub_001F45B0` | `Level_FlowRequestB` | `void(X86Context& ctx, uint8_t* base)` | Código de requisição de fluxo | Variante complementar de requisição de fluxo da fase. | Alvo T4 (`coop_world.cpp`). | **Média** | 2026-11-14 · Equipe BE |
+
+---
+
+## 4. Mapa de Ponteiros Globais e Offsets de Estruturas (`src/game/black_addrs.h`)
+
+Todos os deslocamentos abaixo foram verificados contra `default.xbe` NTSC-U (`title = 0x45410083`, `xdk = 5849`) e consolidados em [`src/game/black_addrs.h`](../src/game/black_addrs.h):
+
+### 4.1 Globais do Jogo e do Mundo
+* `0x002D45F0` (`kGame`): objeto global de sessão (`+0x234` índice da fase `0..7`, `+0x238` dificuldade `0..3`).
+* `0x002D45D4` (`kWorld`): ponteiro para o mundo carregado (`+0x30` ponteiro do `Character` local; `+0x520` controlador de câmera/input do jogador; `+0x3E7D8` identificador da unidade atual; `+0x3E7FC` contador de quadros da fase).
+* `0x002D1980` (`kPool`): pool global de entidades; em `*(uint32_t*)(base + 0x002D1980) + 0x79B0` reside a lista intrusiva duplamente encadeada de personagens vivos (`kAliveList`).
+* `0x01C063EC` (`kSquadSlots`): quatro ponteiros consecutivos (`0..3`) de soldados aliados da cena.
+
+### 4.2 Estrutura `Character` (Jogador e NPCs)
+* `+0x000` (`next`) / `+0x004` (`prev`): elos na lista `kPool + 0x79B0`.
+* `+0x008`: ponteiro para string do nome (`"Player"` para o jogador local; trocado por `"DeadPlayer"` em `0x001D54C0`).
+* `+0x0A0`: posição no mundo (`float x, y, z, w` — 16 bytes).
+* `+0x0D0`: direção de visão / frente (`float x, y, z, w`).
+* `+0x29C`: ponteiro para a instância da arma equipada.
+* `+0x2F0`: vida atual (`float`).
+* `+0x324`: ponteiro para o controlador ativo (`PlayerController`, `AiController` ou `DeathController`).
+* `+0x384`: estado de vida (`uint32_t`: `0` = normal, `2` = abatido/morto).
+* `+0x3A1`: flag de postura agachada (`uint8_t`: `0` em pé, `1` agachado).
+* `+0x3A7`: flag cinemático (`uint8_t`: `1` desliga gravidade/colisão de parede da IA para permitir interpolação suave de rede).
+* `+0x630`: controlador de morte embutido (instalado em `+0x324` por `0x001D54C0`).
+
+### 4.3 Estrutura `AiController` (em `*(uint32_t*)(character + 0x324)`)
+* `+0x010` / `+0x014`: yaw alvo e yaw atual (`float`, radianos).
+* `+0x018` / `+0x01C`: pitch alvo e pitch atual (`float`, radianos).
+* `+0x020`: velocidade escalar de locomoção (`float`, `0.0f` parado, `1.0f` correndo).
+* `+0x040`: flag de agachamento no controlador (`uint8_t`).
+* `+0x060` e `+0x070`: vetores de deslocamento (`vec4`) usados pelo animador (`0x001CCBB0`).
+* `+0x084`: taxa de blend de giro (`float`, `12.0f` para resposta imediata de rede).
+* `+0x08C`: ponteiro reverso para o `Character` dono deste controlador.
+
