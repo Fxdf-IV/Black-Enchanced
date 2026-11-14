@@ -1,0 +1,90 @@
+# Regras padrão do modo Deathmatch (MVP 0.1 — Black Enhanced Online)
+# Este arquivo documenta os parâmetros que alimentam netcore::RulesConfig::default_deathmatch().
+
+[match]
+mode = "deathmatch"
+tick_rate_hz = 30
+snapshot_rate_hz = 15
+max_players = 4
+max_health = 100
+kill_limit = 15
+time_limit_s = 600
+respawn_delay_ticks = 90
+max_speed_units_per_sec = 18.0
+arena_id = 0
+
+[security]
+max_packets_per_window = 120
+max_violations_before_kick = 5
+
+[[spawns]]
+position = [0.0, 0.0, 0.0]
+yaw = 0.0
+
+[[spawns]]
+position = [32.0, 0.0, 0.0]
+yaw = 3.14159
+
+[[spawns]]
+position = [0.0, 0.0, 32.0]
+yaw = -1.57079
+
+[[spawns]]
+position = [32.0, 0.0, 32.0]
+yaw = 1.57079
+
+[[weapons]]
+id = 0
+name = "Glock 19"
+damage = 22
+min_fire_interval_ticks = 5
+magazine_size = 19
+max_range = 80.0
+
+[[weapons]]
+id = 3
+name = "MP5"
+damage = 20
+min_fire_interval_ticks = 2
+magazine_size = 30
+max_range = 90.0
+
+[[weapons]]
+id = 7
+name = "AK-47"
+damage = 34
+min_fire_interval_ticks = 3
+magazine_size = 30
+max_range = 160.0
+
+[[weapons]]
+id = 8
+name = "M16A2"
+damage = 30
+min_fire_interval_ticks = 3
+magazine_size = 30
+max_range = 175.0
+
+[[weapons]]
+id = 10
+name = "SPAS-12"
+damage = 75
+min_fire_interval_ticks = 15
+magazine_size = 8
+max_range = 35.0
+
+[[weapons]]
+id = 13
+name = "WA2000"
+damage = 95
+min_fire_interval_ticks = 20
+magazine_size = 6
+max_range = 300.0
+
+[[weapons]]
+id = 15
+name = "RPG-7"
+damage = 100
+min_fire_interval_ticks = 60
+magazine_size = 1
+max_range = 200.0

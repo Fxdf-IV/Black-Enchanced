@@ -1,0 +1,3 @@
+#!/bin/sh
+# Pre-commit hook para bloquear arquivos do jogo (.xbe, .iso), código gerado e segredos.
+python tools/check_repo_hygiene.py

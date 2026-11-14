@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  hygiene-and-netcore:
+    name: Repo Hygiene & Netcore Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check repository hygiene (no XBE/ISO/generated code)
+        run: python3 tools/check_repo_hygiene.py
+
+      - name: Configure netcore (C++20, engine-independent)
+        run: cmake -S . -B build -DBLACK_NETCORE_ONLY=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build netcore and unit tests
+        run: cmake --build build --config Release
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure

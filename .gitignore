@@ -1,0 +1,42 @@
+# Build outputs
+/out/
+/build/
+*.zip
+*.pdb
+*.exe
+*.dll
+*.lib
+*.obj
+*.o
+*.wasm
+
+# Recompiled code derived from the user's XBE (NEVER commit)
+/generated/
+
+# User's own game files (NEVER commit)
+/assets/*
+!/assets/.gitkeep
+*.xbe
+*.iso
+*.bin
+
+# Runtime files, logs, saves and crash dumps
+settings.toml
+black_mods.ini
+coop-online.toml
+/logs/
+/hdd/
+/CrashDumps/
+*.dmp
+
+# Local secrets and credentials
+*.key
+*.pem
+.env
+.env.*
+
+# Editors and local scratch
+.vs/
+.vscode/
+.idea/
+.local/
