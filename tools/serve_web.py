@@ -26,14 +26,17 @@ class CoopCoepHandler(SimpleHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Serve web/ with COOP/COEP headers for WASM + WebGPU + WebRTC.")
+    parser.add_argument("port_pos", type=int, nargs="?", default=None, help="HTTP port (optional positional argument)")
     parser.add_argument("--port", type=int, default=8080, help="HTTP port (default: 8080)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
     args = parser.parse_args()
 
+    port = args.port_pos if args.port_pos is not None else args.port
+
     web_dir = Path(__file__).resolve().parent.parent / "web"
     handler = partial(CoopCoepHandler, directory=str(web_dir))
-    server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"[serve_web] Servindo {web_dir} em http://{args.host}:{args.port} (COOP/COEP ativos)")
+    server = ThreadingHTTPServer((args.host, port), handler)
+    print(f"[serve_web] Servindo {web_dir} em http://{args.host}:{port} (COOP/COEP ativos)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
