@@ -5,6 +5,7 @@
 
 export const BLACK_TITLE_ID = 0x45410083;
 export const XBE_MAGIC = 0x48454258; // "XBEH" little-endian
+export const REAL_XBE_MIN_BYTES = 1_000_000;
 
 export function inspectXbeHeader(arrayBuffer) {
   if (!arrayBuffer || arrayBuffer.byteLength < 0x180) {
@@ -27,17 +28,25 @@ export function inspectXbeHeader(arrayBuffer) {
     titleId = view.getUint32(certOffset + 0x08, true);
   }
 
+  const isBlackTitle = titleId === BLACK_TITLE_ID;
+  const isRealSize = arrayBuffer.byteLength >= REAL_XBE_MIN_BYTES;
+  let reason = "";
+  if (!isBlackTitle) {
+    reason = `Title ID 0x${titleId.toString(16).toUpperCase()} não corresponde a BLACK (0x45410083).`;
+  } else if (!isRealSize) {
+    reason = `default.xbe incompleto (${(arrayBuffer.byteLength / 1024).toFixed(1)} KB; esperado executável Xbox real > 1 MB).`;
+  } else {
+    reason = "default.xbe real de BLACK (Title ID 0x45410083, XDK 5849) verificado.";
+  }
+
   return {
-    valid: titleId === BLACK_TITLE_ID,
+    valid: isBlackTitle && isRealSize,
     magic,
     baseAddr,
     certAddr,
     titleId,
     byteLength: arrayBuffer.byteLength,
-    reason:
-      titleId === BLACK_TITLE_ID
-        ? "default.xbe NTSC-U de BLACK (Title ID 0x45410083) verificado."
-        : `Title ID 0x${titleId.toString(16).toUpperCase()} não corresponde a BLACK (0x45410083).`,
+    reason,
   };
 }
 

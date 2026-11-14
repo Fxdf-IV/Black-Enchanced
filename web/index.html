@@ -408,36 +408,16 @@
 
   <main class="workspace">
     <section class="panel">
-      <div class="panel-header" style="gap: 10px; flex-wrap: wrap;">
-        <div class="btn-row">
-          <button id="btn-mode-solo" class="btn btn-primary" type="button">Campanha Solo 3D (Treneska)</button>
-          <button id="btn-mode-mp" class="btn" type="button">Multiplayer P2P (4 Operadores)</button>
-        </div>
-        <span id="viewport-mode-tag" class="panel-tag">FIRST-PERSON 3D // 48 KHZ WEB AUDIO</span>
+      <div class="panel-header">
+        <span class="panel-title">Viewport Tático WebGPU / Simulação MP (libs/netcore)</span>
+        <span id="viewport-mode-tag" class="panel-tag">XBOX XBE RECOMP // XDK 5849</span>
       </div>
 
       <div class="viewport-wrap">
         <canvas id="tactical-canvas" width="760" height="440"></canvas>
       </div>
 
-      <div id="solo-controls-hint" class="viewport-footer">
-        <div>
-          <span class="key-hint">CLICK</span> Travar Mira &amp; Atirar
-          <span class="key-hint">BTN DIR / E</span> Zoom / Mira
-          <span class="key-hint">WASD</span> Mover
-          <span class="key-hint">R</span> Recarregar
-          <span class="key-hint">G</span> Granada
-          <span class="key-hint">1/2/3</span> Arma
-          <span class="key-hint">SHIFT</span> Agachar
-          <span class="key-hint">TAB</span> Radar
-        </div>
-        <div class="btn-row">
-          <button id="btn-solo-restart" class="btn" type="button" style="padding: 4px 10px; font-size: 11px;">Reiniciar Missão</button>
-          <button id="btn-solo-mute" class="btn" type="button" style="padding: 4px 10px; font-size: 11px;">Som: ON</button>
-        </div>
-      </div>
-
-      <div id="mp-controls-hint" class="viewport-footer" style="display: none;">
+      <div id="mp-controls-hint" class="viewport-footer">
         <div>
           <span class="key-hint">WASD</span> Mover
           <span class="key-hint">SHIFT</span> Agachar (+0x3A1)
@@ -447,32 +427,7 @@
         <div>Abra uma segunda aba com o mesmo código para testar WebRTC P2P</div>
       </div>
 
-      <div id="solo-hud-panel">
-        <div class="panel-header" style="margin-top: 4px;">
-          <span id="solo-sector-title" class="panel-title">SETOR ALPHA // POSTO DA FRONTEIRA</span>
-          <span id="solo-objective-text" class="panel-tag">Carregando missão do OPFS...</span>
-        </div>
-        <div class="telemetry-grid" style="grid-template-columns: repeat(4, 1fr); margin-top: 10px;">
-          <div class="tel-item">
-            <div class="tel-label">Saúde / Colete</div>
-            <div id="hud-hp" class="tel-val">100 HP / 50 AP</div>
-          </div>
-          <div class="tel-item">
-            <div class="tel-label">Arma / Munição</div>
-            <div id="hud-ammo" class="tel-val">M16A2 (30 / 150)</div>
-          </div>
-          <div class="tel-item">
-            <div class="tel-label">Ameaças / Granadas</div>
-            <div id="hud-enemies" class="tel-val">4 vivos / 3 G</div>
-          </div>
-          <div class="tel-item">
-            <div class="tel-label">Baixas / Barris</div>
-            <div id="hud-score" class="tel-val">0 kills / 0 barris</div>
-          </div>
-        </div>
-      </div>
-
-      <div id="mp-scoreboard-panel" style="display: none;">
+      <div id="mp-scoreboard-panel">
         <div class="panel-header" style="margin-top: 4px;">
           <span class="panel-title">Placar da Sessão (Autoritativo no Host)</span>
           <span class="panel-tag">LIMITE: 15 KILLS</span>

@@ -18,7 +18,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import gen_homebrew_xbe
+import xiso_extract
+
+REAL_XBE_MIN_BYTES = 1_000_000
 
 
 class EnhancedWebHandler(SimpleHTTPRequestHandler):
@@ -45,26 +47,43 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
     def handle_manifest(self) -> None:
         files_info: list[dict[str, int | str]] = []
         total_bytes = 0
-        available = False
+        has_real_xbe = False
+        has_iso = False
 
         if self.data_dir and self.data_dir.is_dir():
+            xbe_path = self.data_dir / "default.xbe"
+            if xbe_path.is_file() and xbe_path.stat().st_size > REAL_XBE_MIN_BYTES:
+                has_real_xbe = True
+
             for root, _, files in os.walk(self.data_dir):
                 for f in files:
                     if f.startswith("."):
+                        continue
+                    if f.lower().endswith(".iso"):
+                        has_iso = True
                         continue
                     full_p = Path(root) / f
                     rel_p = str(full_p.relative_to(self.data_dir)).replace("\\", "/")
                     sz = full_p.stat().st_size
                     total_bytes += sz
                     files_info.append({"path": rel_p, "size": sz})
-            available = len(files_info) > 0
 
+        available = has_real_xbe and len(files_info) > 0
         payload = {
             "available": available,
+            "has_real_xbe": has_real_xbe,
+            "has_iso": has_iso,
             "total_bytes": total_bytes,
             "file_count": len(files_info),
-            "files": files_info,
+            "files": files_info if available else [],
             "cdn_url": self.cdn_url,
+            "recompiler": {
+                "sdk": "TGP482/XboxXBERecomp",
+                "title_id": "0x45410083",
+                "entry": "0x25A3F",
+                "xdk": 5849,
+                "partitions": 64,
+            },
         }
         body = json.dumps(payload).encode("utf-8")
         self.send_response(200)
@@ -108,11 +127,20 @@ def main() -> int:
     web_dir = repo_root / "web"
 
     data_dir_path = Path(args.data) if args.data else (repo_root / "assets")
-    if not data_dir_path.exists():
-        print(f"[serve_web] Pasta informada não encontrada ({data_dir_path}). Gerando pacote aberto padrão em assets/...")
-        data_dir_path = gen_homebrew_xbe.generate_assets(repo_root)
-    elif not (data_dir_path / "default.xbe").is_file() and data_dir_path == (repo_root / "assets"):
-        gen_homebrew_xbe.generate_assets(repo_root)
+    if data_dir_path.is_dir():
+        xbe_file = data_dir_path / "default.xbe"
+        if not xbe_file.is_file() or xbe_file.stat().st_size <= REAL_XBE_MIN_BYTES:
+            isos = sorted(p for p in data_dir_path.iterdir() if p.is_file() and p.suffix.lower() == ".iso")
+            if isos:
+                print(f"[serve_web] ISO encontrada em {isos[0].name}. Extraindo arquivos de BLACK (Xbox) para {data_dir_path}...")
+                try:
+                    xiso_extract.extract_iso(isos[0], data_dir_path)
+                except Exception as exc:
+                    print(f"[serve_web] Aviso: falha ao extrair {isos[0].name}: {exc}")
+            else:
+                print(f"[serve_web] Aviso: nenhum default.xbe real (>1 MB) ou .iso encontrado em {data_dir_path}.")
+    else:
+        print(f"[serve_web] Aviso: diretório de dados não existe ({data_dir_path}).")
 
     EnhancedWebHandler.data_dir = data_dir_path
     EnhancedWebHandler.cdn_url = args.cdn_url
