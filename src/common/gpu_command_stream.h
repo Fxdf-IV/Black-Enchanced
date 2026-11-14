@@ -1,11 +1,14 @@
 #pragma once
-// Fila de comandos de renderização entre a thread do jogo (sdk/runtime/gpu/backend.h)
-// e a thread principal da página no navegador (requestAnimationFrame -> WebGPU).
+// Prototipo (Fase 6 - Trilha de Pesquisa) de fila de comandos entre a thread do jogo
+// (sdk/runtime/gpu/backend.h) e a thread principal no navegador (WebGPU).
 //
-// Por que existe: no navegador, o contexto WebGPU do canvas é apresentado no loop de animação
-// da thread principal, enquanto o motor de BLACK desenha a partir da sua própria thread.
-// Segue o padrão validado pelo cricket07-browser: a thread do jogo grava comandos de alto nível
-// (Init, Clear, Draw, Copy, Present, SetGamma) num quadro, e a thread da página consome o quadro fechado.
+// ATENCAO SOBRE READ-BACK E SINCRONIZACAO EM WEBGPU:
+// Este gravador cobre comandos de desenho e estende os opcodes de sincronizacao/consulta
+// (Sync, RecordLate, ClearReport, GetReport, Fence). Porem, no WebGPU, leituras GPU -> CPU
+// (buffer.mapAsync) e espera por conclusao de fila (onSubmittedWorkDone) sao ASSINCRONAS por
+// definicao. Portanto, Sync, SyncLate/DeliverLate, GetReport e WaitFence nao podem apenas ser
+// gravados nesta fila esperando leitura sincrona imediata na main thread: a implementacao real
+// da Fase 6 precisara de bufferizacao adiada e sincronizacao entre worker/main thread.
 
 #include <cstdint>
 #include <cstring>
@@ -22,16 +25,21 @@ enum class OpCode : uint8_t {
     Present = 5,
     SetGamma = 6,
     Flush = 7,
+    Sync = 8,
+    RecordLate = 9,
+    ClearReport = 10,
+    GetReport = 11,
+    Fence = 12,
 };
 
 struct Command {
     OpCode op = OpCode::Flush;
-    uint32_t a0 = 0;  // Init: width | Clear: flags | Draw: prim | Copy: count | Present: front_va
-    uint32_t a1 = 0;  // Init: height | Clear: color | Draw: start | Copy: src_va
-    uint32_t a2 = 0;  // Clear: stencil | Draw: count | Copy: dst_va
+    uint32_t a0 = 0;  // Init: width | Clear: flags | Draw: prim | Present: front_va | Sync/RecordLate/GetReport: data_va | Fence: fence_id
+    uint32_t a1 = 0;  // Init: height | Clear: color | Draw: start | Sync: size
+    uint32_t a2 = 0;  // Clear: stencil | Draw: count
     float f0 = 0.0f;  // Clear: z | Copy: src_kx
     float f1 = 0.0f;  // Copy: src_ky
-    std::vector<uint8_t> inline_bytes;  // índices 16-bit, retângulos de Clear ou rampa de gama (768 B)
+    std::vector<uint8_t> inline_bytes;  // indices 16-bit, retangulos de Clear ou rampa de gama (768 B)
 };
 
 class CommandRecorder {
@@ -91,6 +99,47 @@ public:
         if (ramp) {
             cmd.inline_bytes.assign(ramp, ramp + 768);
         }
+        staging_.push_back(std::move(cmd));
+    }
+
+    // Read-back sincrono/adiado, testes de visibilidade e cerca da interface gpu::Backend.
+    void record_sync(uint32_t data_va, uint32_t size) {
+        std::lock_guard<std::mutex> lock(mu_);
+        Command cmd{};
+        cmd.op = OpCode::Sync;
+        cmd.a0 = data_va;
+        cmd.a1 = size;
+        staging_.push_back(std::move(cmd));
+    }
+
+    void record_late(uint32_t data_va) {
+        std::lock_guard<std::mutex> lock(mu_);
+        Command cmd{};
+        cmd.op = OpCode::RecordLate;
+        cmd.a0 = data_va;
+        staging_.push_back(std::move(cmd));
+    }
+
+    void record_clear_report() {
+        std::lock_guard<std::mutex> lock(mu_);
+        Command cmd{};
+        cmd.op = OpCode::ClearReport;
+        staging_.push_back(std::move(cmd));
+    }
+
+    void record_get_report(uint32_t report_va) {
+        std::lock_guard<std::mutex> lock(mu_);
+        Command cmd{};
+        cmd.op = OpCode::GetReport;
+        cmd.a0 = report_va;
+        staging_.push_back(std::move(cmd));
+    }
+
+    void record_fence(uint32_t fence_id) {
+        std::lock_guard<std::mutex> lock(mu_);
+        Command cmd{};
+        cmd.op = OpCode::Fence;
+        cmd.a0 = fence_id;
         staging_.push_back(std::move(cmd));
     }
 

@@ -1,31 +1,34 @@
 # Black Enhanced Online
 
-Projeto de recompilação estática e multiplayer online (**Deathmatch até 4 jogadores**, nativo no Windows e com meta final em **WebAssembly + WebGPU + WebRTC no navegador**) construído para **BLACK** (Criterion Games, Xbox 2006, NTSC-U).
+Projeto de recompilação estática e multiplayer online (**Deathmatch até 4 jogadores**, iniciando nativo no Windows/Direct3D 12 com trilha futura de pesquisa para navegador em WebAssembly/WebGPU/WebRTC) construído para **BLACK** (Criterion Games, Xbox 2006, NTSC-U).
 
 > [!IMPORTANT]
-> **Este repositório não contém nenhum arquivo do jogo nem código gerado a partir do executável original.** Para compilar e jogar o jogo completo, você precisa fornecer sua própria cópia legal de **BLACK (Xbox, versão NTSC-U)** na pasta `assets/`.
+> **Este repositório não contém nenhum arquivo do jogo nem código gerado a partir do executável original.** Para executar as fases de engenharia reversa, recompilação e combate local (Fases 0–3), você precisa fornecer sua própria cópia legal de **BLACK (Xbox, versão NTSC-U)** em `assets/`.
+>
+> **Nota sobre a grafia:** O projeto chama-se **Black Enhanced Online**; o nome da pasta e do repositório remoto (`Black-Enchanced`) é mantido apenas por compatibilidade de URL do Git.
 
 ---
 
-## O que já está pronto neste repositório
+## Estado real do projeto (transparência técnica)
 
-1. **Base de Recompilação Limpa (MIT) + Controle de Entidades no Mundo (Fases 1–3):**
-   * Submódulo `sdk/` fixado em [`TGP482/XboxXBERecomp`](https://github.com/TGP482/XboxXBERecomp) (`cc9edda3a8`), integrado ao `CMakeLists.txt`, `build.bat` e `release.bat`.
-   * Mapa completo de endereços e offsets do `default.xbe` NTSC-U (`0x45410083`, XDK 5849) em [`src/game/black_addrs.h`](src/game/black_addrs.h) e [`config/game.toml`](config/game.toml).
-   * Ponte [`src/mp/mp_bridge.cpp`](src/mp/mp_bridge.cpp) e ganchos em [`src/game/hooks.cpp`](src/game/hooks.cpp): leitura do jogador local, aplicação de snapshots em atores remotos (flag cinemático `+0x3A7`, ângulos e vetores de locomoção no `AiController`), desligamento seletivo do cérebro de IA (`sub_001E5F70`), interceptação de morte (`sub_001D54C0` / `sub_001BD360`), respawn in-place sem recarregar a fase e prevenção de crash de colisão no mesmo ponto (`kPool + 0x79B0`), mantendo `OfflineCampaign` intacta por padrão.
-2. **Núcleo de Rede Independente (`libs/netcore` — C++20):**
-   * Protocolo binário completo (15 tipos de mensagens, magic `0xB1AC`) com serialização segura (`ByteReader`/`ByteWriter`), verificação de versão e hash FNV-1a das regras da partida.
-   * Validação estrita contra entradas hostis ou malformadas (rejeita `NaN`/`Inf`, coordenadas fora dos limites, pacotes truncados ou com bytes excedentes, auto-tiro e IDs duplicados).
-   * Máquina de estados de **Host Autoritativo (`HostSession`)** e **Cliente (`ClientSession`)** para Deathmatch de até 4 jogadores, com validação de cadência, alcance, dano, morte, respawn automático, placar, limite de eliminações/tempo e expulsão automática (`Kick`) por flood ou pacotes inválidos.
-   * Suíte de testes automatizados (`test_netcore.cpp`) incluindo fuzzing determinístico de 10.000 pacotes e simulação completa de partida Deathmatch de 4 jogadores.
-3. **Pilha de Navegador (WebRTC DataChannels + OPFS + Sinalização Serverless — Fases 5–6):**
-   * [`src/common/gpu_command_stream.h`](src/common/gpu_command_stream.h): Gravador thread-safe de comandos `gpu::Backend` (`Init`, `Clear`, `Draw`, `Copy`, `Present`, `SetGamma`) entre a thread do jogo e o `requestAnimationFrame` da página.
-   * [`server/`](server/README.md): Cloudflare Worker + Durable Object (`RoomSession`) para códigos de sala de 6 caracteres, sinalização WebRTC (SDP/ICE) e fallback de relay.
-   * [`web/`](web/index.html): Cliente web tático com verificador local de `default.xbe` via **OPFS** (`XBEH` + Title ID `0x45410083` + SHA-256 sem upload), transporte **WebRTC DataChannels** (`reliable` + `unreliable`) falando o protocolo binário `0xB1AC` byte a byte com `libs/netcore`, e arena tática interativa de 4 jogadores.
-4. **Mapeamento Reverso e Arquitetura Web Documentados:**
-   * [`docs/PLANO_DE_IMPLEMENTACAO.md`](docs/PLANO_DE_IMPLEMENTACAO.md): Plano de implementação v2 atualizado com as evidências de `black-seamless-coop` (MIT), `BLACKReloadedMod` e `cricket07-browser` (MIT).
-   * [`docs/re-log.md`](docs/re-log.md): Registro de engenharia reversa com 19 endereços `sub_XXXXXXXX` verificados e tabela completa de offsets de `Character` e `AiController`.
-   * [`docs/browser-architecture.md`](docs/browser-architecture.md): Especificação técnica do port para navegador usando a interface `gpu::Backend` (`sdk/runtime/gpu/backend.h`) sobre WebGPU, Web Audio, OPFS e WebRTC.
+### 1. O que existe e foi compilado/testado hoje (sem exigir `default.xbe`)
+* **Base estrutural limpa (`sdk/`):** submódulo fixado em [`TGP482/XboxXBERecomp`](https://github.com/TGP482/XboxXBERecomp) (licença **MIT**, commit `cc9edda3a8`), integrado ao `CMakeLists.txt`, `build.bat` e `release.bat`. Zero assets e zero binários proprietários versionados (`tools/check_repo_hygiene.py`).
+* **Núcleo de rede independente (`libs/netcore` — C++20):** protocolo binário completo (15 tipos de mensagens, magic `0xB1AC`), `ByteReader`/`ByteWriter` com validação contra `NaN`/`Inf`, coordenadas inválidas e flood, máquinas de estado `HostSession` / `ClientSession` para Deathmatch de 4 jogadores e suíte de 9 testes unitários + fuzzing determinístico de 10.000 pacotes rodando sem depender do motor do jogo.
+* **Ferramentas offline do recompilador e extração XISO:** [`tools/recomp_black.py`](tools/recomp_black.py) compila localmente `build/compiler/xbe_recomp.exe` e `build/compiler/xbe_symbols.exe` a partir de `sdk/tools/` (via `zig c++`), validando `config/game.toml` + `sdk/xdk/5849/layout.toml`, e [`tools/xiso_extract.py`](tools/xiso_extract.py) extrai imagens XDVDFS/Redump de Xbox.
+
+### 2. O que é esqueleto / hipótese aguardando o `default.xbe` real (ainda não ligado ao SDK nem executado no jogo)
+* [`src/game/black_addrs.h`](src/game/black_addrs.h), [`src/game/hooks.cpp`](src/game/hooks.cpp), [`src/mp/mp_bridge.cpp`](src/mp/mp_bridge.cpp) e [`config/game.toml`](config/game.toml): rascunhos de integração construídos a partir de endereços e nomes publicados sob licença MIT por [`MuriloDagustin/black-seamless-coop`](https://github.com/MuriloDagustin/black-seamless-coop).
+* Todos esses endereços e deslocamentos estão classificados como **Confiança Baixa (hipótese)** em [`docs/re-log.md`](docs/re-log.md): **ainda não foram linkados ao runtime D3D12 do SDK nem testados contra o `default.xbe` real** (dependem das Fases 0 a 3 no Windows com Visual Studio 2022 + cópia de `BLACK` em `assets/`).
+* A campanha original inicia sempre em `mp::Role::OfflineCampaign` por padrão para não interferir no jogo solo quando compilado.
+
+### 3. Protótipo de transporte web (`web/` + `server/` — **não executa o jogo no navegador**)
+* [`web/`](web/index.html) e [`server/`](server/README.md) formam uma **bancada de teste P2P** em JavaScript: testam o envio do protocolo binário `0xB1AC` (`libs/netcore`) via `RTCDataChannel` (`reliable` + `unreliable`) entre abas (`BroadcastChannel`) ou via Cloudflare Worker + Durable Object, além de validar localmente a presença e o hash SHA-256 de um `default.xbe` real (`Title ID 0x45410083`, `> 1 MB`) em **OPFS** sem envio para servidor.
+* **Não há execução de BLACK (3D nem WASM) no navegador hoje.** O port para navegador é a **Fase 6** (trilha de pesquisa), que só será iniciada após as **Fases 0–3** comprovarem controle de entidades e combate local no PC nativo.
+
+### 4. Documentação de engenharia e pesquisa
+* [`docs/PLANO_DE_IMPLEMENTACAO.md`](docs/PLANO_DE_IMPLEMENTACAO.md): Plano de Implementação alinhado à ordem estrita PC primeiro -> Rede -> Navegador e às fronteiras de licenciamento (`XboxXBE-Recomp` MIT vs `BLACK-XBERecomp` sem licença visível vs `BLACKReloadedMod` fechado).
+* [`docs/re-log.md`](docs/re-log.md): Registro de engenharia reversa com a escala oficial de confiança (Alta / Média / Baixa), origem de cada hipótese e respostas verificadas no `sdk/`.
+* [`docs/browser-architecture.md`](docs/browser-architecture.md): Trilha de pesquisa para WASM (`wasm32` arena 256 MB vs `wasm64`) + `gpu::Backend` sobre WebGPU (incluindo os desafios assíncronos de `Sync`, `SyncLate`, fences e relatórios de visibilidade).
 
 ---
 

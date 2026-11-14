@@ -7,10 +7,14 @@ Este arquivo define as regras técnicas, arquiteturais e de higiene obrigatória
 1. **Nunca versionar material protegido ou binários gerados:**
    * Jamais adicione ao Git arquivos `.xbe`, `.iso`, `.bin`, conteúdo de `assets/` (exceto `assets/.gitkeep`), código C++ gerado pelo recompilador em `generated/`, executáveis/bibliotecas (`.exe`, `.dll`, `.lib`, `.pdb`, `.wasm`) ou chaves/credenciais (`coop-online.toml`, `.env`).
    * Antes de qualquer commit, rode `python tools/check_repo_hygiene.py`.
-2. **Não editar o submódulo `sdk/` diretamente sem necessidade:**
+2. **Fronteira estrita de licenciamento e engenharia reversa limpa:**
+   * **Proibido extrair endereços, descompilar ou ler arquivos gerados pelo `BLACKReloadedMod` (`kROM3r`):** mod de código fechado/licença restritiva; serve apenas como prova visual externa de que certos efeitos são possíveis, nunca como fonte técnica.
+   * **Caminho limpo obrigatório:** partir do `sdk/` (`TGP482/XboxXBERecomp`, licença MIT) + `sdk/templates/game`, realizar nossa própria engenharia reversa sobre o `default.xbe` fornecido pelo usuário (Ghidra + `[xbe] trace`) e consultar apenas referências com licença permissiva explícita (`MuriloDagustin/black-seamless-coop` e `portingpete/Black-2006-Recomp`, ambos MIT). `TGP482/BLACK-XBERecomp` não tem arquivo de licença visível e atua só como baseline comportamental.
+   * **Rótulo claro entre simulação e XBE real:** nenhum teste sintético/simulado pode ser descrito como comportamento verificado no jogo; toda validação de Fase 0–3 deve informar se rodou apenas sobre `libs/netcore` ou no `default.xbe` real.
+3. **Não editar o submódulo `sdk/` diretamente sem necessidade:**
    * O `sdk/` aponta para `TGP482/XboxXBERecomp` (licença MIT). Ganchos específicos do jogo pertencem a `src/game/`, código de host a `src/common/` e a ponte multiplayer a `src/mp/`.
-   * Quando iniciarmos a Fase 6 (port WebAssembly/WebGPU do runtime), as implementações de plataforma (`gpu/webgpu.cpp`, `audio/webaudio.cpp`, memória WASM) devem respeitar as interfaces existentes do SDK (`gpu::Backend` em `sdk/runtime/gpu/backend.h` e `audio` em `sdk/runtime/audio/audio.h`).
-3. **Sem subpastas em `src/game/` e `src/mp/`:**
+   * Quando iniciarmos a Fase 6 (trilha de pesquisa WebAssembly/WebGPU do runtime, após Fases 0–3 nativas), as implementações de plataforma (`gpu/webgpu.cpp`, `audio/webaudio.cpp`, memória WASM) devem respeitar as interfaces existentes do SDK (`gpu::Backend` em `sdk/runtime/gpu/backend.h` e `audio` em `sdk/runtime/audio/audio.h`).
+4. **Sem subpastas em `src/game/` e `src/mp/`:**
    * O `CMakeLists.txt` e o `sdk/cmake/XbeRecomp.cmake` coletam fontes com `file(GLOB ... src/*/*.cpp)` e `file(GLOB ... src/${game_dir}/*.cpp)`. Mantenha todos os `.cpp`/`.h` em um único nível dentro de `src/common/`, `src/game/` e `src/mp/`.
 
 ## 2. Arquitetura de Dois Produtos

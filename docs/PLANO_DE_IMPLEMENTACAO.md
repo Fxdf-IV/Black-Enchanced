@@ -1,106 +1,116 @@
-# Black Enhanced Online — Plano de Implementação (v2 Atualizado)
+# Black Enhanced Online — Plano de Implementação
 
-**Atualizado em:** 14 de novembro de 2026 · **Autores:** @Vinicius & Equipe Black Enhanced
+**Atualizado em:** 14 de novembro de 2026 · **Base:** Revisão técnica e Especificação de 20 páginas (`@Vinicius`)
 
 > [!IMPORTANT]
-> **Objetivo final:** Levar **Black Enhanced Online** a partidas multiplayer de até 4 jogadores **no navegador (WebAssembly + WebGPU + WebRTC)**, mantendo a campanha original intacta e construindo sobre uma base 100% livre de assets ou código proprietário no controle de versão.
+> **Princípio de ordem (PC primeiro, navegador por último):**
+> Primeiro provar no Windows nativo (Direct3D 12 via `sdk/`) que conseguimos controlar entidades do executável recompilado de **BLACK** (`default.xbe`) e executar combate local entre duas entidades (**Fases 0 a 3**). Só então integrar a rede (**Fases 4–5**) e abrir a trilha de pesquisa para navegador em WebAssembly/WebGPU (**Fase 6**).
+>
+> **Regra de ouro contra simulação:** Todo critério de aceite das Fases 0 a 3 deve ser medido **no `default.xbe` real**. Testes em `libs/netcore` ou na bancada JavaScript devem ser explicitamente rotulados como simulações isoladas da camada de rede.
 
 ---
 
-## 1. Evidências: O que foi verificado e atualizado na v2
+## 1. Fronteira de Licenciamento e Inventário de Referências
 
-Todas as pendências de verificação da v1 foram resolvidas por inspeção direta dos repositórios e pacotes:
-
-| Item | Status na v1 | Status na v2 | O que as fontes mostram agora |
+| Projeto / Artefato | Licença | Papel Permitido no Projeto | Limites e Observações |
 | :--- | :--- | :--- | :--- |
-| **`TGP482/XboxXBERecomp` (SDK)** | Verificado (CMake parcial) | **Verificado 100%** | Licença MIT (`cc9edda3a8`). `templates/game` lido integralmente. Além disso, `runtime/gpu/backend.h` define uma interface abstrata `gpu::Backend` de 72 linhas entre `d3d8.cpp` e o renderizador D3D12, facilitando um backend WebGPU direto. |
-| **`MuriloDagustin/black-seamless-coop`** | Não listado na v1 | **Verificado (Novo — MIT)** | Mod co-op em rede para até 8 jogadores sobre o port de BLACK, sob **licença MIT**. Documenta e implementa em C++ os ganchos exatos do `default.xbe` (`0x20F6A0` frame, `0x1DB7B0`/`0x1DBD50` balas, `0x1AF880` corpo aliado, `0x1E5F70` AI think, `0x1CCBB0` update, `0x1D54C0` morte do jogador, `0x02B830` câmera). |
-| **`kROM3r/BLACKReloadedMod`** | "Não encontrado" | **Verificado** | Modpack (v1.9, nov/2026) em `winmm.dll` para XBE Recomp V3+ e PC port 0.3.0. Prova na prática: corpo em 3ª pessoa com 10 modelos e mira alinhada ao cano (< 1,5°), Squad Mode, Enemy Multiplier (1×–3×), correção de crash de colisão quando dois atores ocupam o mesmo ponto e reamostragem de áudio a 48 kHz com prioridade de thread. |
-| **`TGP482/BLACK-XBERecomp`** | Verificado | **Verificado** | Port nativo para PC da versão Xbox. Sem arquivo de licença explícito; usado como baseline comportamental. |
-| **`portingpete/Black-2006-Recomp`** | Verificado em parte | **Verificado (MIT)** | Licença MIT; traz ambient occlusion em quatro técnicas e FOV amplo. |
-| **`Dhaiwat10/cricket07-browser`** | Verificado | **Verificado (MIT)** | Jogo x86 de 2006 em WebAssembly, D3D8 sobre WebGPU (gravação de comandos na thread do jogo e replay na main thread), DirectSound sobre Web Audio, arquivos do usuário copiados para OPFS via File System Access API e sinalização em Cloudflare Worker + Durable Object. |
+| **`TGP482/XboxXBE-Recomp`** (`sdk/`) | **MIT** | **Base técnica do projeto** | Fornece `xbe_recomp`, `xbe_symbols`, `xbe2pe.py`, CMake (`add_xbe_image`) e o runtime Win32/D3D12/XAudio2. Submódulo fixado em `cc9edda3a8`. |
+| **`TGP482/BLACK-XBERecomp`** | **Sem licença visível** | **Baseline comportamental apenas** | Sem arquivo de licença no repositório: **não** copiamos nem derivamos código dele. Partimos de `sdk/templates/game` (MIT) + `xbe_symbols` no XBE do usuário. Ação pendente: contatar TGP482 sobre licença. |
+| **`MuriloDagustin/black-seamless-coop`** | **MIT** | **Referência aberta de co-op** | Mod co-op em rede (UDP 45410, host autoritativo, atores aliados como corpos remotos). **Limites:** é co-op vs IA (não Deathmatch PvP), projeto jovem (20 commits), README cita 8 jogadores vs descrição 2 jogadores. Endereços tratados como **Baixa confiança** até reprodução local. Ação: contatar autor. |
+| **`portingpete/Black-2006-Recomp`** | **MIT** | **Referência gráfica** | Técnicas de ambient occlusion e FOV amplo. |
+| **`kROM3r/BLACKReloadedMod`** | **Fechado / All Rights Reserved** | **Prova de existência visual apenas** | **PROIBIDO** descompilar, extrair endereços ou ler arquivos de configuração gerados por este mod (zona cinzenta/restritiva). |
+| **`Dhaiwat10/cricket07-browser`** | **MIT** | **Referência de port WASM/WebGPU** | Modelo de gravação de comandos gráficos, OPFS e sinalização Cloudflare Worker + Durable Object (ressalva: `cricket07` usa lockstep; BLACK exige snapshots autoritativos). |
+| **`Solid7s/Virtual-On-Web`** | Referência web | **Alerta jurídico de WASM** | Alerta que binários WebAssembly recompilados contêm instruções traduzidas da ROM/XBE — ponto crítico da Decisão #1 (Fase 6). |
 
 ---
 
-## 2. Produto e Escopo
+## 2. Estado Real Atual (Sem Simular Progresso)
 
-O projeto mantém a separação estrita em dois produtos sobre a mesma base técnica:
-* **Black Enhanced (Campanha):** campanha original preservada (`mp::Role::OfflineCampaign` é o padrão no boot), melhorias gráficas/desempenho e correções de estabilidade.
-* **Black Enhanced Online (Multiplayer):** Deathmatch para até 4 jogadores, com regras, configurações e balanceamento próprios (`data/rules_dm.toml` e `libs/netcore`).
-
-### Posicionamento por Etapa
-
-| Etapa | Plataforma | Posicionamento |
+| Componente | O que realmente existe hoje | Status de Verificação |
 | :--- | :--- | :--- |
-| **Protótipo (Fases 0–3)** | Windows (Nativo) | Controle de entidade, combate bidirecional e Deathmatch local/LAN |
-| **MVP 0.1 (Fase 4)** | Windows (Internet) | Multiplayer casual entre amigos (até 4 jogadores, host autoritativo) |
-| **Web Alpha (Fase 5)** | Navegador (Cliente WebRTC) + Host Nativo | Cliente WebAssembly/WebGPU conectando em partidas hospedadas no PC |
-| **Objetivo Final (Fase 6)** | Navegador Completo (WASM + WebGPU + WebRTC) | Partidas completas no navegador (usuário carrega sua própria ISO/pasta via OPFS) |
+| **`libs/netcore`** | Protocolo binário (`0xB1AC`, 15 mensagens), validação anti-NaN/flood, `HostSession`/`ClientSession` e `LoopbackEndpoint`. | **Compilado e testado** (9 testes + fuzzing de 10k pacotes) **isolado do motor do jogo**. |
+| **`sdk/` + `tools/recomp_black.py`** | Submódulo MIT + `xbe_recomp.exe`, `xbe_symbols.exe` compilados com `zig c++` + extrator `tools/xiso_extract.py`. | **Toolchain validada offline** contra `config/game.toml` e `sdk/xdk/5849/layout.toml`; aguarda `assets/default.xbe` real e VS 2022 para gerar/ligar o executável D3D12. |
+| **`src/game/`, `src/mp/`, `config/game.toml`** | Rascunhos de ganchos e tabela de endereços copiados como hipótese de `black-seamless-coop` (MIT). | **Não linkados ao runtime D3D12 nem testados no `default.xbe` real.** Todos os endereços estão em **Confiança Baixa** em [`docs/re-log.md`](re-log.md). |
+| **`web/` + `server/`** | Bancada JavaScript do protocolo `0xB1AC` via WebRTC DataChannels, Cloudflare Worker e verificador OPFS local (`Title ID 0x45410083`, `> 1 MB`). | **Não executa o motor de BLACK no navegador.** Arena 2D apenas exercita pacotes `libs/netcore` entre abas. |
 
 ---
 
-## 3. Decisões de Arquitetura Atualizadas
+## 3. Escala Oficial de Confiança (Engenharia Reversa)
 
-| Decisão | Escolha | Status | Motivo |
-| :--- | :--- | :--- | :--- |
-| **Jogo-base** | BLACK (Xbox NTSC-U, XDK 5849) | **Congelada** | Recompilação estática madura e endereços `sub_XXXXXXXX` já mapeados. |
-| **Base de código** | `TGP482/XboxXBERecomp` (MIT) em `sdk/` + `libs/netcore` (MIT) | **Congelada** | 100% sob licença MIT no nosso repositório, sem depender de código sem licença. |
-| **Modelo de sincronização** | Snapshots com Host Autoritativo (Listen-Server) | **Congelada (Nativo e Web)** | Validado tecnicamente (inclusive para o navegador): BLACK é multithread e usa ponto flutuante x87/SSE, tornando lockstep determinístico inviável para 4 jogadores. |
-| **Núcleo de rede (`libs/netcore`)** | C++20 puro, zero dependência do motor ou SO | **Implementado e Testado** | Compila igual no Windows e no Emscripten/WASM; testado em CI sem arquivos do jogo. |
-| **Transporte (`ITransport`)** | Interface comum: Loopback (testes), UDP/ENet (nativo) e WebRTC DataChannels (web) | **Congelada** | Dois canais lógicos (`Reliable` e `Unreliable`) mapeiam 1:1 tanto para ENet quanto para WebRTC. |
-| **Renderizador Web** | Implementar `gpu::Backend` sobre WebGPU (`runtime/gpu/webgpu.cpp`) | **Definida** | Evita traduzir D3D12 para WebGPU; intercepta diretamente a camada D3D8 do SDK (72 linhas em `gpu/backend.h`). |
-| **Distribuição no Navegador** | Assets locais via OPFS + compilação/link local do XBE do usuário | **Definida** | Nenhum arquivo da EA/Criterion nem binário derivado do XBE é hospedado publicamente. |
+Toda entrada em [`docs/re-log.md`](re-log.md) obedece estritamente a esta escala:
+* **Alta:** o gancho foi testado por nós no `default.xbe` real e altera o comportamento de forma previsível em **>= 3 cenários**.
+* **Média:** observado por nós em **1 cenário** no `default.xbe` real + leitura confirmada no Ghidra.
+* **Baixa:** hipótese externa (ex.: `black-seamless-coop` MIT) ainda não reproduzida nem verificada por nós no `default.xbe` real.
 
 ---
 
-## 4. Estrutura do Repositório (Ativa)
+## 4. Roteiro de Execução por Fases (0 a 6)
 
-```text
-black-enhanced-online/
-├── .github/workflows/ci.yml  # CI: verifica higiene do repo + compila e roda netcore_tests
-├── sdk/                      # Submódulo TGP482/XboxXBERecomp fixado em cc9edda3a821
-├── src/
-│   ├── common/               # game_info.cpp (configuração da aplicação e callbacks)
-│   ├── game/                 # hooks.cpp (ganchos X86_FUNC sobre o default.xbe)
-│   └── mp/                   # mp_bridge.h / mp_bridge.cpp (ponte entre o jogo e libs/netcore)
-├── libs/
-│   └── netcore/              # Protocolo binário, validação, regras, sessões Host/Client e Loopback
-│       ├── include/netcore/  # limits.hpp, buffer.hpp, protocol.hpp, rules.hpp, transport.hpp, session.hpp
-│       ├── src/              # protocol.cpp, rules.cpp, session.cpp
-│       └── tests/            # test_netcore.cpp (roundtrip, fuzzing 10k pacotes, simulação 4P DM, anti-flood)
-├── config/                   # game.toml (template / saída do xbe_symbols)
-├── data/                     # rules_dm.toml (regras e armas do Deathmatch)
-├── tools/                    # check_repo_hygiene.py, install_hooks.py, hooks/pre-commit
-├── docs/                     # PLANO_DE_IMPLEMENTACAO.md, re-log.md, browser-architecture.md, plano-v1/
-├── assets/                   # Ignorado no Git (exceto .gitkeep): onde o usuário coloca sua cópia do jogo
-└── AGENTS.md                 # Instruções técnicas e regras para agentes e desenvolvedores
-```
+### Fase 0 — Baseline Nativa no Windows (Pré-requisito de Tudo)
+**Objetivo:** Rodar a campanha original de BLACK recompilada no Windows (`Direct3D 12`) a partir do `sdk/` (MIT) sem alterar jogabilidade, com 1 gancho diagnóstico disparando.
+* **Checklist:**
+  1. Usuário fornece cópia legal de **BLACK (Xbox NTSC-U)** em `assets/` (`.iso` extraída via `tools/xiso_extract.py` ou arquivos diretos).
+  2. Instalar Visual Studio 2022 (*Desktop C++*, *Clang tools*, *CMake tools*).
+  3. Executar `xbe_symbols.exe assets/default.xbe sdk/xdk --library BlackEnhancedOnline.dll --out config/game.toml` (ou `python tools/recomp_black.py --run-symbols`) para popular `[symbols]` e `[data]` do XDK 5849.
+  4. Executar `.\build.bat` e validar boot da campanha intacta (`mp::Role::OfflineCampaign`).
+* **Critério de aceite:** Campanha entra em gameplay sem regressões + parágrafo de log do primeiro gancho de teste disparando em `src/game/hooks.cpp`.
+
+### Fase 1 — Engenharia Reversa Própria no `default.xbe` Real
+**Objetivo:** Validar e/ou corrigir os alvos **T1–T7** executando os cenários observáveis **C1–C7** sobre o executável recompilado.
+* **Ferramentas nativas do SDK:**
+  * Exportar PE plano com símbolos para o Ghidra: `python sdk/tools/symbols/xbe2pe.py config/game.toml build/black_flat.pe.exe` (via `python tools/recomp_black.py --export-pe`).
+  * Rastreador de chamadas embutido no `xbe_recomp` (`[xbe] trace = [0x...]` em `config/game.toml`).
+* **Alvos T1–T7:**
+  * **T1:** Ator inimigo/aliado, pool de personagens e cérebro de IA.
+  * **T2:** Vida, dano, morte do NPC e interceptação de morte/respawn do jogador.
+  * **T3:** Rotina de disparo, origem/direção de projétil e balística.
+  * **T4:** Estado de fase, unidade/subárea e fluxo de missão.
+  * **T5:** Loop principal de quadro (30 FPS) e prioridade/fluxo de áudio.
+  * **T6:** Atualização de locomoção, animações, postura e câmera.
+  * **T7:** Propagação de disparos sobre objetos destrutíveis do cenário.
+* **Cenários observáveis C1–C7:** C1 = boot/idle em fase; C2 = disparo em parede; C3 = disparo em inimigo; C4 = matar inimigo; C5 = sofrer dano de inimigo; C6 = morte do jogador local; C7 = destruição de cenário/explosivos.
+* **Critério de aceite:** Funções essenciais promovidas a confiança **Média/Alta** em `docs/re-log.md` a partir de logs no XBE real + análise no Ghidra.
+
+### Fases 2 e 3 — Controle de Entidade e Combate Local (Matriz de 11 Testes)
+**Portão obrigatório:** **Não avançar para a Fase 4 (rede)** enquanto os 11 testes abaixo não passarem **no `default.xbe` real** em máquina única:
+
+| Fase | Teste | Descrição |
+| :--- | :--- | :--- |
+| **Fase 2** | **#1** | Instanciar/identificar um segundo ator humanoide no mundo durante fase ativa sem crashar o jogo. |
+| **Fase 2** | **#2** | Desligar o cérebro de IA do ator controlado sem congelar suas animações/esqueleto. |
+| **Fase 2** | **#3** | Teleportar/mover continuamente o ator #2 para coordenadas arbitrárias válidas com suavidade. |
+| **Fase 2** | **#4** | Replicar orientação (yaw/pitch), postura (em pé/agachado) e animação de locomoção no ator #2. |
+| **Fase 2** | **#5** | Aplicar dano fatal no ator #2 e ler estado de abatido/vida chegando a zero. |
+| **Fase 2** | **#6** | Permitir que inimigos ou projéteis interajam/colidam normalmente com o ator #2. |
+| **Fase 2** | **#7** | Interceptar morte do jogador local evitando que dispare tela irrecuperável de *Missão Fracassada*. |
+| **Fase 2** | **#8** | Ressuscitar (respawn in-place) o jogador e o ator #2 sem recarregar a fase inteira do disco. |
+| **Fase 3** | **#9** | Disparar projétil real originado do ator #2 (flash, som, traçante e colisão na parede/cenário). |
+| **Fase 3** | **#10** | Combate bidirecional: ator #2 fere/mata jogador local e jogador local fere/mata ator #2 com feedback de dano. |
+| **Fase 3** | **#11** | Loop de partida Deathmatch local com dois atores: contagem de kills/deaths e respawn automático sem crash de colisão dupla. |
+
+### Fase 4 — Rede Nativa no Windows (`libs/netcore` + UDP/ENet)
+* Só inicia após 11/11 testes aprovados no XBE real.
+* Implementar `ENetTransport` (ou UDP equivalente) satisfazendo `netcore::ITransport`.
+* Ligar `src/mp/mp_bridge.cpp` aos sockets reais mantendo `OfflineCampaign` intacta por padrão.
+* Validar partida LAN/Internet entre duas instâncias Windows de BLACK recompilado.
+
+### Fase 5 — Transporte WebRTC & Sinalização por Código de Sala
+* Implementar `WebRtcTransport` compatível com os dois canais lógicos (`Reliable` / `Unreliable`) e sinalização leve (já prototipada em `server/` + `web/`).
+* Testar interoperabilidade nativa Windows <-> sinalização em nuvem (Cloudflare Worker cota gratuita).
+
+### Fase 6 — Trilha de Pesquisa: Navegador (`WASM` + `WebGPU`)
+* Mantida estritamente como **trilha de pesquisa** até que as Fases 0–3 estejam comprovadas no PC.
+* Foco técnico em [`docs/browser-architecture.md`](browser-architecture.md):
+  1. Memória linear em `wasm32` com arena compacta de 256 MB (evitando exigir `wasm64` experimental no navegador).
+  2. `gpu::Backend` (`sdk/runtime/gpu/backend.h`) sobre WebGPU, resolvendo o gargalo assíncrono de `Sync`, `SyncLate`, `ClearReport`/`GetReport` e fences.
+  3. Áudio sobre `AudioWorklet` (48 kHz) cumprindo `sdk/runtime/audio/audio.h`.
 
 ---
 
-## 5. Roteiro de Execução por Fases
+## 5. Decisões em Aberto (Dependem de Escolha do Usuário)
 
-### Fase 0 e Fase 1 — Fundação, Higiene e Mapeamento Reverso (Concluídas no Repositório)
-* [x] Estrutura de repositório criada com `sdk/` (MIT) fixado em commit conhecido (`cc9edda3a8`).
-* [x] Dúvidas da Seção 5 resolvidas (`add_xbe_image`, `src/game`, `xdk/5849`) e documentadas em `docs/re-log.md`.
-* [x] Registro de engenharia reversa (`docs/re-log.md`) preenchido com os 19 endereços verificados de quadro, disparo, spawn de ator/aliado, IA, dano, morte e câmera.
-* [x] Gancho inicial de quadro (`sub_0020F6A0`) implementado em `src/game/hooks.cpp` integrado à ponte `src/mp/mp_bridge.cpp`.
-* [x] Higiene do repositório automatizada (`tools/check_repo_hygiene.py`, hook `pre-commit` e workflow `.github/workflows/ci.yml`).
-
-### Fase 2 e Fase 3 — Controle de Entidade e Combate Local (Próximo Marco com `default.xbe`)
-* Executar `build.bat` com a ISO/arquivos NTSC-U em `assets/` para gerar `config/game.toml` e `generated/`.
-* Validar em jogo a matriz de 11 testes da Seção 8 usando os endereços já conhecidos (`sub_001AF880` para instanciar o corpo do jogador remoto, `sub_001E5F70` para desligar a IA dele, `sub_001CCBB0` para aplicar posição/mira do `netcore::SnapshotPlayer` e `sub_001DB7B0`/`sub_001DBD50` para disparar).
-* Aplicar a proteção contra colisão em coordenadas idênticas documentada pelo `BLACKReloadedMod`.
-
-### Fase 4 — Deathmatch Nativo para 4 Jogadores (`libs/netcore` + Transporte UDP/ENet)
-* O núcleo `libs/netcore` (protocolo, validação contra pacotes malformados, simulação de Deathmatch 4 jogadores, limite de kills/tempo, respawn e kick por flood/violação) **já está implementado e passando nos testes unitários**.
-* Plugar `ENetTransport` (implementando `netcore::ITransport`) na ponte `src/mp/mp_bridge.cpp`.
-
-### Fase 5 — Cliente e Transporte Web (`WebRTCDataChannel` + Sinalização)
-* Implementar `WebRtcTransport` sobre `ITransport` (canais `Reliable` e `Unreliable`) e servidor leve de sinalização por código de sala (Cloudflare Worker + Durable Object, compatível com a cota gratuita).
-* Permitir que clientes conectem por código de sala sem port-forwarding.
-
-### Fase 6 — Port do Runtime para WebAssembly + WebGPU (`Black Enhanced Online no Navegador`)
-* Implementar `sdk/runtime/gpu/webgpu.cpp` sobre a interface `gpu::Backend` (traduzindo estados D3D8 para WebGPU com gravação de comandos na thread do jogo e replay no `requestAnimationFrame`).
-* Implementar `sdk/runtime/audio/webaudio.cpp` sobre `AudioWorklet` (48 kHz).
-* Adaptar `sdk/runtime/kernel/memory.cpp` para `wasm64` (Memory64) ou janela compacta em `wasm32` e carregar os arquivos do disco do próprio jogador via **OPFS (Origin Private File System)**.
+1. **"Clicar e jogar" (`nfsu2.xyz`) vs. Usuário traz seus arquivos (OPFS):**
+   * Hospedar assets e módulo WASM recompilado entra em conflito direto com a política de não distribuir conteúdo protegido da EA/Criterion — e o `Virtual-On-Web` alerta que o `.wasm` gerado contém instruções traduzidas do executável original.
+   * Alternativa limpa: usuário fornece o disco uma única vez no navegador (salvo no OPFS), restando resolver o fluxo técnico de geração/link local do `.wasm` a partir do `default.xbe` do usuário.
+2. **Disponibilização local dos arquivos de BLACK (Xbox NTSC-U):**
+   * Sem o `default.xbe` e os assets reais na máquina do usuário, **nenhum avanço das Fases 0 a 3 pode ser verificado de verdade**.

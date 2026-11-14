@@ -227,7 +227,7 @@ def check_toolchain(repo_root: Path) -> int:
     return 1
 
 
-def run_recomp(repo_root: Path) -> int:
+def _ensure_real_xbe(repo_root: Path) -> Path | None:
     assets_dir = repo_root / "assets"
     xbe_path = assets_dir / "default.xbe"
 
@@ -243,15 +243,63 @@ def run_recomp(repo_root: Path) -> int:
             "Coloque a ISO de BLACK (Xbox NTSC-U) ou os arquivos extraídos (default.xbe, GlobData.bin, levels/, chars/, etc.) em assets/.",
             file=sys.stderr,
         )
-        return 1
+        return None
 
-    ok, title_id, info = _inspect_xbe(xbe_path)
+    ok, _, info = _inspect_xbe(xbe_path)
     print(f"[recomp_black] Encontrado default.xbe: {info}")
     if not ok:
         print(
             f"[recomp_black] ERRO: default.xbe inválido para BLACK NTSC-U (esperado TitleID=0x{EXPECTED_TITLE_ID:08X}, >= 1 MB).",
             file=sys.stderr,
         )
+        return None
+
+    return xbe_path
+
+
+def run_symbols(repo_root: Path) -> int:
+    """Executa xbe_symbols.exe sobre assets/default.xbe para gerar config/game.toml limpo (Fase 0)."""
+    xbe_path = _ensure_real_xbe(repo_root)
+    if xbe_path is None:
+        return 1
+
+    _, symbols_exe = build_toolchain(repo_root)
+    cmd = [
+        str(symbols_exe),
+        str(xbe_path),
+        str(repo_root / "sdk" / "xdk"),
+        "--library",
+        "BlackEnhancedOnline.dll",
+        "--out",
+        str(repo_root / "config" / "game.toml"),
+    ]
+    print(f"[recomp_black] Executando: {' '.join(cmd)}")
+    proc = subprocess.run(cmd, cwd=repo_root)
+    return proc.returncode
+
+
+def export_pe(repo_root: Path) -> int:
+    """Exporta um PE plano com símbolos (sub_XXXXXXXX) via sdk/tools/symbols/xbe2pe.py para uso no Ghidra (Fase 1)."""
+    xbe_path = _ensure_real_xbe(repo_root)
+    if xbe_path is None:
+        return 1
+
+    out_pe = repo_root / "build" / "black_flat.pe.exe"
+    out_pe.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable,
+        str(repo_root / "sdk" / "tools" / "symbols" / "xbe2pe.py"),
+        str(repo_root / "config" / "game.toml"),
+        str(out_pe),
+    ]
+    print(f"[recomp_black] Exportando PE plano para Ghidra: {out_pe}")
+    proc = subprocess.run(cmd, cwd=repo_root)
+    return proc.returncode
+
+
+def run_recomp(repo_root: Path) -> int:
+    xbe_path = _ensure_real_xbe(repo_root)
+    if xbe_path is None:
         return 1
 
     recomp_exe, _ = build_toolchain(repo_root)
@@ -268,6 +316,16 @@ def main() -> int:
         action="store_true",
         help="Compila/verifica xbe_recomp.exe + xbe_symbols.exe e valida config/game.toml + sdk/xdk/5849/layout.toml.",
     )
+    parser.add_argument(
+        "--run-symbols",
+        action="store_true",
+        help="Executa xbe_symbols.exe sobre assets/default.xbe para gerar config/game.toml (Fase 0).",
+    )
+    parser.add_argument(
+        "--export-pe",
+        action="store_true",
+        help="Exporta build/black_flat.pe.exe via sdk/tools/symbols/xbe2pe.py para inspeção no Ghidra (Fase 1).",
+    )
     parser.add_argument("--rebuild-tools", action="store_true", help="Força recompilação de xbe_recomp e xbe_symbols.")
     args = parser.parse_args()
 
@@ -277,6 +335,10 @@ def main() -> int:
             build_toolchain(repo_root, force=True)
         if args.check_toolchain:
             return check_toolchain(repo_root)
+        if args.run_symbols:
+            return run_symbols(repo_root)
+        if args.export_pe:
+            return export_pe(repo_root)
         return run_recomp(repo_root)
     except Exception as exc:
         print(f"[recomp_black] ERRO: {exc}", file=sys.stderr)

@@ -117,7 +117,7 @@ async function detectBrowserCapabilities() {
   state.webgpuReady = gpuOk;
   state.gpuAdapterName = gpuLabel;
 
-  setBadge("cap-webgpu", gpuOk ? "WEBGPU ATIVO" : "CANVAS 2D FALLBACK", gpuOk ? "ok" : "warn");
+  setBadge("cap-webgpu", "BANCADA P2P (SEM MOTOR WASM)", "warn");
   setBadge("cap-sab", sabOk ? "COOP/COEP ISOLADO" : "SEM COOP/COEP", sabOk ? "ok" : "warn");
   setBadge("cap-opfs", opfsOk ? "OPFS PRONTO" : "OPFS INDISPONÍVEL", opfsOk ? "ok" : "warn");
   setBadge("cap-webrtc", rtcOk ? "WEBRTC DATACHANNEL" : "SEM WEBRTC", rtcOk ? "ok" : "warn");

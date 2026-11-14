@@ -1,63 +1,61 @@
-# Arquitetura WebAssembly / Navegador — Black Enhanced Online
+# Trilha de Pesquisa WebAssembly / Navegador (Fase 6) — Black Enhanced Online
 
-Este documento detalha o caminho técnico e jurídico para levar o **Black Enhanced Online** ao navegador sem violar direitos autorais e aproveitando as costuras reais do `XboxXBE-Recomp` (`sdk/`).
+> [!IMPORTANT]
+> **Estado atual: Trilha de pesquisa (Fase 6 — NÃO implementada nem validada em execução).**
+> Conforme o princípio **PC primeiro, navegador por último** ([`PLANO_DE_IMPLEMENTACAO.md`](PLANO_DE_IMPLEMENTACAO.md)), nenhum trabalho de runtime WebAssembly/WebGPU bloqueia ou substitui as **Fases 0 a 3 no Windows nativo (D3D12)**. Os documentos nesta página registram o levantamento real do `sdk/runtime/gpu/backend.h` e as restrições conhecidas para quando a Fase 6 começar.
 
 ---
 
-## 1. Descobertas na Auditoria do `sdk/runtime`
+## 1. O que a Inspeção do `sdk/runtime/gpu/backend.h` Realmente Mostra
 
-A inspeção direta do código-fonte de `TGP482/XboxXBERecomp` (`cc9edda3a821a4204dc28783f429b88a27ade4f9`) revelou três fatos arquiteturais decisivos:
+A interface `gpu::Backend` em [`sdk/runtime/gpu/backend.h`](../sdk/runtime/gpu/backend.h) (72 linhas) isola o `d3d8.cpp` do backend D3D12 através de chamadas de alto nível, **porém inclui operações de sincronização e leitura GPU -> CPU que complicam o WebGPU**:
 
-1. **Costura limpa de GPU (`sdk/runtime/gpu/backend.h`):**
-   O `d3d8.cpp` do SDK **não** chama Direct3D 12 diretamente. Ele conversa com a interface abstrata `gpu::Backend` (apenas 72 linhas), que possui:
+1. **Comandos de desenho unidirecionais (fáceis de enfileirar):**
    * `Init(width, height)`
    * `Clear(state, count, rects, flags, color, z, stencil)`
    * `Draw(state, prim, start, count, indices)`
    * `Copy(src, dst, count, src_rects_va, dst_points_va, src_kx, src_ky)`
-   * `Present(front)`
-   * `Sync(data_va, size)` / `SyncLate(data_va)`
-   * `Flush()` / `SetGamma(ramp)`
-   Para rodar no navegador, **não precisamos traduzir Direct3D 12 para WebGPU**. Basta implementar `gpu/webgpu.cpp` herdando de `gpu::Backend` (exatamente no nível D3D8 -> WebGPU validado pelo `cricket07-browser`).
-2. **Assinatura uniforme de funções recompiladas (`sdk/runtime/cpu/x86_context.h`):**
-   Toda função gerada pelo recompilador tem a assinatura:
-   ```cpp
-   using X86Func = void(X86Context& __restrict ctx, uint8_t* base);
-   ```
-   Ou seja, todos os acessos à memória convidada já são relativos ao ponteiro `uint8_t* base` (`g_base`), e não ponteiros absolutos do processo de 64 bits do host.
-3. **Mapeamento de memória (`sdk/runtime/kernel/memory.cpp`):**
-   No Windows x64, `memory.cpp` reserva uma janela virtual de 4 GB (`1ull << 32`) via `VirtualAlloc` e mapeia a RAM física de 64 MB do Xbox em duas janelas espelhadas (`0x80000000` e `0xF0000000` para write-combine) usando `MapViewOfFileEx`.
+   * `Present(front)` / `Flush()` / `SetGamma(ramp)`
+2. **Leituras GPU -> CPU, visibilidade e cercas (ponto crítico no WebGPU):**
+   * `Sync(data_va, size)` — a CPU vai ler/alterar memória de recurso: exige que a GPU devolva resultados antes do acesso da CPU.
+   * `SyncLate(data_va)` + `DeliverLate(va)` / `RecordLate(va)` — lock tipo `NOOVERWRITE` tolerando atraso de 1–2 quadros.
+   * `ClearReport()` / `GetReport(report)` — testes de visibilidade (occlusion queries) que gravam relatório de 16 bytes na memória convidada após os draws concluírem.
+   * `Fence()`, `FencePending(id)`, `WaitFence(id)`, `Busy(resource)`, `WaitResource(resource)`, `WaitGpuFrame(n)` — barreiras de conclusão da GPU.
+   * **Por que complica no WebGPU:** No WebGPU, leituras de buffer (`buffer.mapAsync`) e conclusão de fila (`onSubmittedWorkDone`) são **assíncronas** por design e não podem bloquear de forma síncrona na main thread do navegador. Uma implementação futura de `gpu/webgpu.cpp` (e a extensão em `src/common/gpu_command_stream.h`) precisará usar worker threads dedicadas com `Atomics.wait` sobre `SharedArrayBuffer`, ring buffers de read-back adiado (`DeliverLate`/`RecordLate`) ou caching assíncrono dos relatórios de visibilidade.
 
 ---
 
-## 2. Os 4 Bloqueadores do Port para WebAssembly e Como Resolvê-los
+## 2. Alvo Primário de Memória WASM (Inconsistência Corrigida)
 
-| # | Bloqueador no `sdk/runtime` | Causa no Navegador | Solução Técnica |
-| :--- | :--- | :--- | :--- |
-| **B1** | **Espaço convidado de 4 GB e janelas `0x80000000` / `0xF0000000`** | Em `wasm32`, a memória linear inteira tem no máximo 4 GB e é compartilhada com o heap do próprio runtime C++; não há `MapViewOfFileEx` para criar espelhos virtuais. | **Opção A (`wasm64` / Memory64):** Suportado nativamente sem flags no Chrome 133+ e Firefox 143+; permite alocar uma região contígua de 4 GB (`g_base`) dentro do espaço de 64 bits e sincronizar a janela `0xF0000000` (64 MB) no `gpu::Backend::Sync`/`Flush` ou mascarar o bit alto no acesso do recompilador.<br>**Opção B (`wasm32` com máscara de endereço no recompilador):** Como o Xbox tem apenas 64 MB de RAM física e o executável fica abaixo de `0x02000000`, um passe no gerador C++ do `tools/recomp` pode dobrar endereços `>= 0x80000000` para uma janela compacta de 256 MB. |
-| **B2** | **Threads do Kernel Xbox (`runtime/kernel/threads.cpp`)** | Depende de primitivas Win32 e assume preempção do SO. | Compilar com Emscripten `-pthread` sobre `SharedArrayBuffer` (requer cabeçalhos HTTP `Cross-Origin-Opener-Policy: same-origin` e `Cross-Origin-Embedder-Policy: require-corp`), mantendo a thread de renderização separada via gravação de comandos (padrão `cricket07-browser`). |
-| **B3** | **Renderizador (`runtime/gpu/d3d12.cpp`)** | Exclusivo de Windows (DXGI / D3D12). | Implementar `runtime/gpu/webgpu.cpp` implementando `gpu::Backend` sobre `<webgpu/webgpu.h>` do Emscripten, traduzindo os shaders gerados em `gpu/shaders.cpp` para WGSL. |
-| **B4** | **Áudio (`runtime/audio/xaudio2.cpp`)** | Exclusivo de Windows (`XAudio2`). | Implementar `runtime/audio/webaudio.cpp` cumprindo `runtime/audio/audio.h` via `AudioWorklet` / SDL3 Audio a 48 kHz. |
+No Windows x64 (`sdk/runtime/kernel/memory.cpp`), o runtime reserva 4 GB e espelha a RAM de 64 MB do Xbox em `0x80000000` e `0xF0000000` (write-combine) usando `VirtualAlloc` + `MapViewOfFileEx`. No navegador não existe `MapViewOfFileEx`.
 
----
-
-## 3. Modelo de Rede no Navegador: Snapshot Autoritativo vs. Lockstep
-
-A análise comparativa (validada na revisão técnica com o Hermes) confirma a escolha do plano original:
-
-* **Não usar Lockstep (`cricket07-browser`) em BLACK:** O `cricket07` é single-thread e determinístico. BLACK é multithread (threads de kernel, áudio e streaming de disco), usa física e balística em ponto flutuante x87/SSE e para partidas de 4 jogadores o lockstep trava todos na latência do par mais lento.
-* **Manter Host Autoritativo com Snapshots (`libs/netcore`):**
-  * O código em `libs/netcore` é C++20 puro, sem chamadas Win32 nem sockets diretos: ele compila inalterado tanto para Windows nativo quanto para `wasm32`/`wasm64` via Emscripten.
-  * No Windows nativo, `ITransport` usa UDP/ENet (ou WebRTC nativo via `libdatachannel`).
-  * No navegador, `ITransport` usa dois `RTCDataChannel` por par:
-    * `Channel::Reliable`: `ordered: true`
-    * `Channel::Unreliable`: `ordered: false, maxRetransmits: 0`
-  * Isso permite **partidas híbridas na Fase Web Inicial**: um host nativo no Windows hospedando a sala enquanto até 3 clientes entram direto pelo navegador via WebRTC, antes mesmo de otimizar o host dentro do navegador.
+* **Desenho primário adotado para pesquisa: `wasm32` com arena convidada compacta de 256 MB.**
+  * Em `wasm32`, todo o espaço linear máximo tem 4 GB compartilhado com o heap C++ do runtime e com os stacks de pthreads.
+  * Como o Xbox físico possui 64 MB de RAM e o executável fica bem abaixo desse teto, um passe no gerador C++ do `xbe_recomp` dobraria endereços de espelho (`>= 0x80000000`) para dentro de uma arena convidada compacta de **256 MB** sem exigir `wasm64`.
+* **Alternativa futura (apenas referência secundária): `wasm64` (Memory64).**
+  * Eliminaria a dobragem de 256 MB ao permitir reserva virtual ampla, mas traz overhead de endereçamento de 64 bits em WASM e menor maturidade de tooling. Mantida apenas como opção de reserva, não mais misturada no mesmo desenho de 256 MB.
 
 ---
 
-## 4. Distribuição Legal no Navegador (Zero Assets / Zero Código da EA Hospedado)
+## 3. Outros Bloqueadores do Port para Navegador
 
-1. **Arquivos do jogo (ISO / pastas):** Nunca são hospedados em servidor. No primeiro acesso à página web, o jogador seleciona sua própria pasta/ISO local via **File System Access API**; os arquivos são copiados uma única vez para o **OPFS (Origin Private File System)** do navegador e nunca saem da máquina do usuário (mesmo modelo do `cricket07-browser`).
-2. **Código recompilado do XBE:**
-   * **Modo auto-hospedado / geração local (recomendado):** O repositório distribui apenas o runtime open-source (MIT), o `libs/netcore` e o script de build local. O usuário gera o módulo `.wasm` localmente a partir do seu próprio `default.xbe` (assim como o `BLACK-XBERecomp` já gera `BLACK.dll` localmente no primeiro boot) ou o carrega do disco para o OPFS ao lado dos assets.
-   * Dessa forma, **nenhum byte derivado do `default.xbe` nem nenhum asset da EA/Criterion é distribuído no repositório público ou em CDN pública**.
+| Bloqueador no `sdk/runtime` | Causa no Navegador | Caminho de Pesquisa |
+| :--- | :--- | :--- |
+| **Threads do Kernel Xbox (`runtime/kernel/threads.cpp`)** | Usa primitivas Win32. | Emscripten `-pthread` sobre `SharedArrayBuffer` (exige HTTP `COOP: same-origin` e `COEP: require-corp`). |
+| **Áudio (`runtime/audio/xaudio2.cpp`)** | Exclusivo de Windows (`XAudio2`). | Implementar `runtime/audio/webaudio.cpp` sobre `sdk/runtime/audio/audio.h` usando `AudioWorklet` a 48 kHz. |
+| **Conversão dos shaders** | `gpu/shaders.cpp` gera bytecode/HLSL para D3D12. | Adaptar o gerador de shaders do SDK para emitir WGSL compatível com WebGPU. |
+
+---
+
+## 4. Modelo de Rede no Navegador (Protótipo Isolado em `web/` + `libs/netcore`)
+
+* **Não usar Lockstep em BLACK:** `cricket07` (MIT) usa lockstep single-thread; BLACK usa múltiplas threads e ponto flutuante x87/SSE, tornando lockstep inviável para 4 jogadores na internet.
+* **Host Autoritativo com Snapshots (`libs/netcore`):** C++20 puro sem dependências de SO. Compila igual para Windows e WASM, usando `RTCDataChannel` (`Reliable` ordenado e `Unreliable` `ordered: false, maxRetransmits: 0`) no navegador.
+* **Estado atual da pasta `web/`:** é **exclusivamente uma bancada de teste P2P em JavaScript** para validar o protocolo `0xB1AC` e o verificador local OPFS (`default.xbe` real `> 1 MB`, `Title ID 0x45410083`). **Não executa o jogo no navegador hoje.**
+
+---
+
+## 5. Decisão Pendente de Distribuição e Questão Jurídica do `.wasm`
+
+1. **Assets originais:** O repositório nunca hospeda ISO, `default.xbe` ou conteúdo da EA/Criterion. O modelo atual exige que o jogador selecione sua própria cópia no navegador (copiada uma vez para o OPFS local, sem upload).
+2. **Conflito "Clicar e Jogar" vs. WASM derivado:** O usuário manifestou preferência por "clicar e jogar" estilo `nfsu2.xyz`, mas distribuir em servidor os assets ou o `.wasm` recompilado entra em conflito com a política do projeto (o projeto `Virtual-On-Web` alerta que o `.wasm` recompilado contém instruções traduzidas do executável original). Mesmo usando OPFS para os assets, **como gerar o `.wasm` a partir do `default.xbe` do usuário dentro/fora do navegador** segue em aberto até a Fase 6.
