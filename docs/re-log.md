@@ -37,7 +37,11 @@ Este documento cumpre as diretrizes das **Fases 0 e 1** do plano de implementaç
 
 ## 3. Fluxo de Engenharia Reversa Própria (Fase 1: `default.xbe` Real)
 
-Quando `assets/default.xbe` (`Title ID 0x45410083`, `> 1 MB`) estiver disponível no PC:
+Quando `assets/default.xbe` (`Title ID 0x45410083`, `> 1 MB`, entrada `0x00025A3F`) estiver disponível no PC:
+
+* **SHA-256 de referência do executável retail NTSC-U** (registrado sob licença MIT em `portingpete/Black-2006-Recomp`: `docs/file-formats/validation.md` e `launcher/src/core/GameFiles.h`):
+  `DF2739C372D254A90AEECCF5971D12097F22D89FBB90DB021FDA96DD4DEB68F6`
+  *(Checado de forma não bloqueante por `tools/recomp_black.py` e `web/opfs_loader.js`.)*
 
 1. **Gerar `config/game.toml` limpo a partir do XBE real:**
    ```powershell
@@ -70,45 +74,46 @@ Quando `assets/default.xbe` (`Title ID 0x45410083`, `> 1 MB`) estiver disponíve
 
 ## 4. Banco Inicial de Hipóteses — Funções `sub_XXXXXXXX` (TODAS EM CONFIANÇA BAIXA)
 
-As funções abaixo **não foram testadas por nós no `default.xbe` real**. Devem ser tratadas exclusivamente como pontos de partida para `[xbe] trace` e inspeção no Ghidra:
+As funções abaixo **não foram testadas por nós no `default.xbe` real**. Todas constam explicitamente no repositório aberto sob licença MIT `MuriloDagustin/black-seamless-coop` (`README.md`, `src/game/coop*.cpp`) e devem ser confirmadas localmente por `[xbe] trace` e Ghidra:
 
-| Endereço | Nome Provisório | Alvo | Origem da Hipótese | Confiança |
+| Endereço | Nome Provisório | Alvo | Proveniência MIT Auditada | Confiança |
 | :--- | :--- | :--- | :--- | :--- |
-| `sub_0020F6A0` | `Game_FrameTick` (loop de quadro) | T5 | README público de `MuriloDagustin/black-seamless-coop` (MIT) | **Baixa (Hipótese)** |
-| `sub_001E5F70` | `AI_ThinkTick` (decisão de IA) | T1 | README público de `MuriloDagustin/black-seamless-coop` (MIT) | **Baixa (Hipótese)** |
-| `sub_001AF880` | `Actor_SpawnSquadAlly` (spawn aliado) | T1 | README público de `MuriloDagustin/black-seamless-coop` (MIT) | **Baixa (Hipótese)** |
-| `sub_001D54C0` | `Player_OnDeath` (morte jogador) | T2 | README público de `MuriloDagustin/black-seamless-coop` (MIT) | **Baixa (Hipótese)** |
-| `sub_0002B830` | `Scene_UpdateCamera` (câmera) | T6 | README público de `MuriloDagustin/black-seamless-coop` (MIT) | **Baixa (Hipótese)** |
-| `sub_001DB7B0` | `Player_FireBulletPrimary` | T3, T7 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001DBD50` | `Player_FireBulletSecondary` | T3, T7 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001DF440` | `Actor_SpawnCharacter` | T1 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_00205C60` | `Spawner_InitCharacter` | T1 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001CCBB0` | `Actor_UpdateFrame` | T1, T6 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001DA240` | `Actor_OnDeathA` | T2 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001DA1A0` | `Actor_OnDeathB` | T2 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001AD440` | `AI_TargetPerception` | T1, T6 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001BD360` | `Player_DownState` | T2 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001C6410` | `Player_DeathFlow` | T2 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001B73B0` | `Level_UnitAdvance` | T4 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001C7620` | `Level_AreaActivate` | T4 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001F45C0` | `Level_FlowRequestA` | T4 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
-| `sub_001F45B0` | `Level_FlowRequestB` | T4 | Fontes `src/mp/*.cpp` atribuídas ao `black-seamless-coop` (MIT) — não confirmado no README | **Baixa (Hipótese)** |
+| `sub_0020F6A0` | `Game_FrameTick` (loop de quadro) | T5 | `black-seamless-coop/README.md` + `src/game/coop.h` | **Baixa (Hipótese)** |
+| `sub_001E5F70` | `AI_ThinkTick` (decisão de IA) | T1 | `black-seamless-coop/README.md` + `src/game/coop_npcs.cpp` | **Baixa (Hipótese)** |
+| `sub_001AF880` | `Actor_SpawnSquadAlly` (spawn aliado) | T1 | `black-seamless-coop/README.md` + `src/game/coop_npcs.cpp` | **Baixa (Hipótese)** |
+| `sub_001D54C0` | `Player_OnDeath` (morte jogador) | T2 | `black-seamless-coop/README.md` + `src/game/coop_life.cpp` | **Baixa (Hipótese)** |
+| `sub_0002B830` | `Scene_UpdateCamera` (câmera) | T6 | `black-seamless-coop/README.md` + `src/game/coop.cpp` | **Baixa (Hipótese)** |
+| `sub_001DB7B0` | `Player_FireBulletPrimary` | T3, T7 | `black-seamless-coop/README.md` + `src/game/coop_shots.cpp` | **Baixa (Hipótese)** |
+| `sub_001DBD50` | `Player_FireBulletSecondary` | T3, T7 | `black-seamless-coop/README.md` + `src/game/coop_shots.cpp` | **Baixa (Hipótese)** |
+| `sub_001DF440` | `Actor_SpawnCharacter` | T1 | `black-seamless-coop/README.md` + `src/game/coop_world.cpp` | **Baixa (Hipótese)** |
+| `sub_00205C60` | `Spawner_InitCharacter` | T1 | `black-seamless-coop/README.md` + `src/game/coop_npcs.cpp` | **Baixa (Hipótese)** |
+| `sub_001CCBB0` | `Actor_UpdateFrame` | T1, T6 | `black-seamless-coop/README.md` + `src/game/coop_npcs.cpp` | **Baixa (Hipótese)** |
+| `sub_001DA240` | `Actor_OnDeathA` | T2 | `black-seamless-coop/README.md` + `src/game/coop_world.cpp` | **Baixa (Hipótese)** |
+| `sub_001DA1A0` | `Actor_OnDeathB` | T2 | `black-seamless-coop/README.md` + `src/game/coop_world.cpp` | **Baixa (Hipótese)** |
+| `sub_001AD440` | `AI_TargetPerception` | T1, T6 | `black-seamless-coop/README.md` + `src/game/coop_npcs.cpp` | **Baixa (Hipótese)** |
+| `sub_001BD360` | `Player_DownState` | T2 | `black-seamless-coop/README.md` + `src/game/coop_life.cpp` | **Baixa (Hipótese)** |
+| `sub_001C6410` | `Player_DeathFlow` | T2 | `black-seamless-coop/README.md` + `src/game/coop_life.cpp` | **Baixa (Hipótese)** |
+| `sub_001B73B0` | `Level_UnitAdvance` | T4 | `black-seamless-coop/README.md` + `src/game/coop_world.cpp` | **Baixa (Hipótese)** |
+| `sub_001C7620` | `Level_AreaActivate` | T4 | `black-seamless-coop/README.md` + `src/game/coop_world.cpp` | **Baixa (Hipótese)** |
+| `sub_001F45C0` | `Level_FlowRequestA` | T4 | `black-seamless-coop/README.md` + `src/game/coop_control.cpp` | **Baixa (Hipótese)** |
+| `sub_001F45B0` | `Level_FlowRequestB` | T4 | `black-seamless-coop/README.md` + `src/game/coop_control.cpp` | **Baixa (Hipótese)** |
 
 ---
 
 ## 5. Hipóteses de Ponteiros Globais e Offsets (`src/game/black_addrs.h` — CONFIANÇA BAIXA)
 
-> [!CAUTION]
-> **Origem não verificada:** Os deslocamentos estruturais abaixo (`Character`, `AiController`, `kGame`, `kWorld`, `kPool`, `kSquadSlots`) **não aparecem no README público do `black-seamless-coop`** e **nunca foram testados por nós contra um `default.xbe` real**. Devem ser conferidos no Ghidra durante a Fase 1 antes de qualquer escrita em memória do jogo.
+> [!WARNING]
+> **Proveniência MIT esclarecida, mas ainda em Confiança Baixa:** Todos os globais e offsets mantidos em `src/game/black_addrs.h` foram conferidos nos repositórios MIT `MuriloDagustin/black-seamless-coop` (`src/game/coop*.cpp`) e `portingpete/Black-2006-Recomp` (`docs/plans/split-screen-coop.md`, `src/recomp_manual.c`). Um endereço morto sem fonte MIT (`kGameClockStep = 0x0002013C`) foi removido. Nenhum deles foi testado por nós contra um `default.xbe` real no PC até aqui.
 
 ### 5.1 Globais do Jogo e Mundo (Hipóteses a Conferir)
-* `0x002D45F0` (`kGame`), `+0x21070` (`kGameState`), `+0x20F78` (`kInLevelState`).
-* `0x002D45D4` (`kWorld`), `+0x30` (`kWorldPlayer`), `+0x520` (`kWorldController`), `+0x5AEC` (`kWorldLevel`), `+0x5AF0` (`kWorldUnit`).
-* `0x002D1980` (`kPool`), `+0x79B0` (`kAliveList`).
-* `0x002D45D0` (`kLogic`), `0x002D1990` (`kLevel`), `0x002D67F4` (`kDisplay`).
+* `0x002D45F0` (`kGame`), `+0x21070` (`kGameState`), `+0x20F78` (`kInLevelState`) — `black-seamless-coop/src/game/coop.cpp`, `coop_life.cpp`, `coop_world.cpp`.
+* `0x002F3A38` (`kGameFrameTime` = `1/30` s NTSC) — `Black-2006-Recomp/src/recomp_manual.c`.
+* `0x002F4368` (`kFrameCounter`), `0x002D45D4` (`kWorld`), `+0x30` (`kWorldPlayer`, embutido), `+0x520` (`kWorldController`, **`PlayerController` embutido em `world + 0x520`, não um ponteiro para desreferenciar**), `+0x1C0` (`kWorldLastPos`), `+0x5AEC` (`kWorldLevel`), `+0x5AF0` (`kWorldUnit`) — `black-seamless-coop/src/game/coop.cpp`, `coop_control.cpp`, `coop_life.cpp`.
+* `0x002D1980` (`kPool`), `+0x79B0` (`kAliveList`: flags `+0`, cap `+4`, count `+8`, array `+0xC`) — `black-seamless-coop/src/game/coop_npcs.cpp`.
+* `0x002D45D0` (`kLogic`), `0x002D1990` (`kLevel`), `0x002D67F4` (`kDisplay`) — `black-seamless-coop/src/game/coop_control.cpp`, `coop_life.cpp`, `Black-2006-Recomp/src/recomp_manual.c`.
 
-### 5.2 Offsets Hipotéticos de `Character`
-* `+0x008` (`name`), `+0x0A0` (`pos float[3]`), `+0x0D0` (`view float[4][4]`), `+0x29C` (`weapon`), `+0x2F0` (`health`), `+0x324` (`control`), `+0x328` (`anim`), `+0x384` (`state`), `+0x39C` (`team`), `+0x3A1` (`crouch`), `+0x3A7` (`kinematic`), `+0x3AB` (`hit`), `+0x630` (`deathControl`).
+### 5.2 Offsets Hipotéticos de `Character` (`black-seamless-coop/src/game/coop_npcs.cpp`, `coop_life.cpp`, `coop.cpp`)
+* `+0x008` (`name` uint64), `+0x0A0` (`pos float[3]`), `+0x0D0` (`view float[4][4]`), `+0x29C` (`weapon`), `+0x2F0` (`health`), `+0x324` (`control`), `+0x328` (`anim`), `+0x384` (`state`: 0 vivo / 1 ragdoll / 2 morto / 3 roteirizada / 4 livre), `+0x39C` (`team`), `+0x3A1` (`crouch`), `+0x3A7` (`kinematic`), `+0x3AB` (`hit`), `+0x630` (`deathControl` embutido).
 
-### 5.3 Offsets Hipotéticos de `AiController` (`[char + 0x324]`)
+### 5.3 Offsets Hipotéticos de `AiController` (`[char + 0x324]`, `black-seamless-coop/src/game/coop_npcs.cpp`)
 * `+0x010`..`+0x01C` (`angles`), `+0x020` (`speed`), `+0x040` (`crouch`), `+0x041` (`fire`), `+0x044` (`reload`), `+0x04A` (`locomotion`), `+0x04B` (`melee`), `+0x04C` (`throw`), `+0x060`/`+0x070` (`move`/`moveDir`), `+0x084` (`rate`), `+0x08C` (`owner char`).

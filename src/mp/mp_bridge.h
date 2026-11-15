@@ -3,6 +3,7 @@
 // Arquivos mantidos em um único nível dentro de src/mp/ para casar com o glob src/*/*.cpp do SDK.
 
 #include <cstdint>
+#include <string>
 
 namespace mp {
 
@@ -14,6 +15,13 @@ enum class Role : uint8_t {
 
 // Inicializa a ponte multiplayer (lê flags/configurações sem alterar o modo campanha padrão).
 void InitBridge();
+void InitBridgeFromArgs(int argc, const char* const* argv);
+
+// Inicia ou encerra sessão UDP real da Fase 4 sobre libs/netcore.
+bool StartHostUdp(uint16_t port = 45410, const std::string& player_name = "Host");
+bool StartClientUdp(const std::string& remote_host, uint16_t port = 45410, const std::string& player_name = "Player");
+void StopMultiplayer();
+bool IsClientJoined();
 
 // Chamado quando a imagem convidada (default.xbe) é carregada na memória base (g_base).
 void OnImageLoaded(uint8_t* guest_base);

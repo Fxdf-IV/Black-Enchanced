@@ -6,6 +6,7 @@
 export const BLACK_TITLE_ID = 0x45410083;
 export const XBE_MAGIC = 0x48454258; // "XBEH" little-endian
 export const REAL_XBE_MIN_BYTES = 1_000_000;
+export const BLACK_RETAIL_SHA256 = "DF2739C372D254A90AEECCF5971D12097F22D89FBB90DB021FDA96DD4DEB68F6";
 
 export function inspectXbeHeader(arrayBuffer) {
   if (!arrayBuffer || arrayBuffer.byteLength < 0x180) {
@@ -77,8 +78,13 @@ export async function stageFilesToOpfs(fileList, onProgress) {
     if (baseName === "default.xbe") {
       const buf = await file.arrayBuffer();
       const info = inspectXbeHeader(buf);
-      const hash = await sha256Hex(buf);
-      xbeReport = { ...info, sha256: hash, path: relPath };
+      const hash = (await sha256Hex(buf)).toUpperCase();
+      xbeReport = {
+        ...info,
+        sha256: hash,
+        retailShaMatch: hash === BLACK_RETAIL_SHA256,
+        path: relPath,
+      };
     }
 
     if (root) {
@@ -123,7 +129,14 @@ export async function checkOpfsCached() {
     const buf = await file.arrayBuffer();
     const info = inspectXbeHeader(buf);
     if (info.valid) {
-      return { cached: true, info, sizeBytes: file.size };
+      const hash = (await sha256Hex(buf)).toUpperCase();
+      return {
+        cached: true,
+        info,
+        sha256: hash,
+        retailShaMatch: hash === BLACK_RETAIL_SHA256,
+        sizeBytes: file.size,
+      };
     }
     return { cached: false, reason: info.reason };
   } catch {
@@ -179,8 +192,13 @@ export async function streamAssetsFromRemote(baseUrl = "", onProgress) {
 
     if (fileName.toLowerCase() === "default.xbe") {
       const info = inspectXbeHeader(buf);
-      const hash = await sha256Hex(buf);
-      xbeReport = { ...info, sha256: hash, path: relPath };
+      const hash = (await sha256Hex(buf)).toUpperCase();
+      xbeReport = {
+        ...info,
+        sha256: hash,
+        retailShaMatch: hash === BLACK_RETAIL_SHA256,
+        path: relPath,
+      };
     }
 
     downloadedBytes += buf.byteLength;

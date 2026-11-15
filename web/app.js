@@ -684,7 +684,8 @@ async function initAssetPipeline() {
     if (barEl) barEl.style.width = "100%";
     if (statusEl) {
       const mb = (cachedCheck.sizeBytes / (1024 * 1024)).toFixed(2);
-      statusEl.textContent = `Pronto! default.xbe real verificado no OPFS (${mb} MB · Title ID 0x45410083 · Entry 0x25A3F).`;
+      const shaTag = cachedCheck.retailShaMatch ? "SHA-256 retail exato" : `SHA-256 ${(cachedCheck.sha256 || "").slice(0, 12)}... (difere do retail NTSC-U)`;
+      statusEl.textContent = `Pronto! default.xbe real verificado no OPFS (${mb} MB · Title ID 0x45410083 · ${shaTag}).`;
     }
     if (playBtn) {
       playBtn.textContent = "▶ ENTRAR NA ARENA P2P (OPFS REAL PRONTO)";
@@ -813,10 +814,11 @@ function bindEvents() {
     if (res.xbeReport) {
       const r = res.xbeReport;
       const hashShort = r.sha256.slice(0, 20) + "...";
+      const shaLabel = r.retailShaMatch ? "SHA-256 retail NTSC-U exato" : `SHA-256: ${hashShort} (difere da ref. NTSC-U)`;
       if (statusEl) {
-        statusEl.textContent = `${r.reason} | ${res.stagedFiles} arq (${mb} MB) | SHA-256: ${hashShort}`;
+        statusEl.textContent = `${r.reason} | ${res.stagedFiles} arq (${mb} MB) | ${shaLabel}`;
       }
-      logLine("OPFS", `${r.reason} Base=0x${r.baseAddr.toString(16).toUpperCase()} SHA256=${hashShort}`);
+      logLine("OPFS", `${r.reason} Base=0x${r.baseAddr.toString(16).toUpperCase()} ${shaLabel}`);
       await initAssetPipeline();
     } else if (statusEl) {
       statusEl.textContent = `${res.stagedFiles} arquivo(s) (${mb} MB) copiados ao OPFS local. (Inclua default.xbe real para validar Title ID 0x45410083).`;

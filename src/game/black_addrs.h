@@ -1,9 +1,9 @@
 #pragma once
-// ATENCAO — ESTADO DE HIPOTESE (CONFIANCA BAIXA):
+// ATENCAO — ESTADO DE HIPOTESE LOCAL (CONFIANCA BAIXA ATE VERIFICAR NO XBE):
 // Estes enderecos e offsets NAO foram verificados localmente contra o default.xbe real de BLACK.
-// Os enderecos de funcao coincidem com hipoteses publicadas (licenca MIT) por MuriloDagustin/black-seamless-coop,
-// enquanto os offsets de estruturas e globais abaixo nao constam no README publico e exigem
-// validacao direta no Ghidra + [xbe] trace na Fase 1 (consulte docs/re-log.md).
+// Proveniencia MIT documentada em build/refs/black-seamless-coop (src/game/coop*.cpp) e
+// build/refs/Black-2006-Recomp (docs/plans/split-screen-coop.md, src/recomp_manual.c);
+// exigem validacao direta no Ghidra + [xbe] trace na Fase 1 (consulte docs/re-log.md).
 
 #include <bit>
 #include <cstdint>
@@ -16,19 +16,18 @@ namespace black {
 inline constexpr uint32_t kGame = 0x002D45F0;            // Hipotese (Baixa): ponteiro para objeto principal do jogo
 inline constexpr uint32_t kGameState = 0x00021070;       // Hipotese (Baixa): offset do estado atual dentro de kGame
 inline constexpr uint32_t kInLevelState = 0x00020F78;    // Hipotese (Baixa): offset do estado "em fase" dentro de kGame
-inline constexpr uint32_t kGameClockStep = 0x0002013C;   // Hipotese (Baixa): passo de relogio do jogo
-inline constexpr uint32_t kGameFrameTime = 0x002F3A38;   // Hipotese (Baixa): delta time alvo (1/30 s)
+inline constexpr uint32_t kGameFrameTime = 0x002F3A38;   // Hipotese (Baixa): delta time alvo (1/30 s; ref. MIT Black-2006-Recomp)
 inline constexpr uint32_t kFrameCounter = 0x002F4368;    // Hipotese (Baixa): contador de quadros incrementado em 0x20F6A0
 
 inline constexpr uint32_t kWorld = 0x002D45D4;           // Hipotese (Baixa): ponteiro para container do mundo ativo
-inline constexpr uint32_t kWorldPlayer = 0x00000030;     // Hipotese (Baixa): ator do jogador local em world + 0x30
-inline constexpr uint32_t kWorldController = 0x00000520; // Hipotese (Baixa): controlador ativo em world + 0x520
+inline constexpr uint32_t kWorldPlayer = 0x00000030;     // Hipotese (Baixa): ator do jogador local em world + 0x30 (embutido)
+inline constexpr uint32_t kWorldController = 0x00000520; // Hipotese (Baixa): PlayerController embutido em world + 0x520 (NAO e ponteiro)
 inline constexpr uint32_t kWorldLastPos = 0x000001C0;    // Hipotese (Baixa): posicao no quadro anterior
 inline constexpr uint32_t kWorldLevel = 0x00005AEC;      // Hipotese (Baixa): indice da fase atual
 inline constexpr uint32_t kWorldUnit = 0x00005AF0;       // Hipotese (Baixa): unidade/subarea atual
 
 inline constexpr uint32_t kPool = 0x002D1980;            // Hipotese (Baixa): pool de personagens/atores
-inline constexpr uint32_t kAliveList = 0x000079B0;       // Hipotese (Baixa): lista de atores vivos em pool + 0x79B0
+inline constexpr uint32_t kAliveList = 0x000079B0;       // Hipotese (Baixa): lista de atores vivos em pool + 0x79B0 (flags +0, cap +4, count +8, array +0xC)
 inline constexpr uint32_t kLogic = 0x002D45D0;           // Hipotese (Baixa): gerenciador de logica e spawners
 inline constexpr uint32_t kLevel = 0x002D1990;           // Hipotese (Baixa): container da fase
 inline constexpr uint32_t kDisplay = 0x002D67F4;         // Hipotese (Baixa): renderizador / camera do mundo
@@ -49,7 +48,7 @@ inline constexpr uint32_t kCharKinematic = 0x3A7;        // uint8: 1 = cinemáti
 inline constexpr uint32_t kCharHit = 0x3AB;              // uint8: contador de reações a acerto
 inline constexpr uint32_t kCharDeathControl = 0x630;     // Controlador de morte embutido no ator
 
-// ---- Offsets hipoteticos do Controlador de IA / Personagem ([char + 0x324] — BAiXA) ---------
+// ---- Offsets hipoteticos do Controlador de IA / Personagem ([char + 0x324] — BAIXA) ---------
 
 inline constexpr uint32_t kControlAngles = 0x010;        // float[4]: yaw (+0x10), torso (+0x14), aim (+0x18), pitch (+0x1C) em graus
 inline constexpr uint32_t kControlSpeed = 0x020;         // float: velocidade escalar de deslocamento

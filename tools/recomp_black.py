@@ -13,6 +13,7 @@ Etapas executadas:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import struct
@@ -25,6 +26,7 @@ import xiso_extract
 
 REAL_XBE_MIN_BYTES = 1_000_000
 EXPECTED_TITLE_ID = 0x45410083
+EXPECTED_RETAIL_SHA256 = "DF2739C372D254A90AEECCF5971D12097F22D89FBB90DB021FDA96DD4DEB68F6"
 
 
 def _find_zig_python(repo_root: Path) -> list[str] | None:
@@ -189,8 +191,18 @@ def _inspect_xbe(path: Path) -> tuple[bool, int, str]:
                 if len(raw) == 4:
                     title_id = struct.unpack("<I", raw)[0]
     sz = path.stat().st_size
+    digest = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1024 * 1024), b""):
+            digest.update(chunk)
+    sha256 = digest.hexdigest().upper()
+    sha_note = (
+        "SHA-256 retail NTSC-U exato"
+        if sha256 == EXPECTED_RETAIL_SHA256
+        else f"SHA-256 difere da referência NTSC-U ({sha256[:16]}...)"
+    )
     ok = (title_id == EXPECTED_TITLE_ID) and (sz >= REAL_XBE_MIN_BYTES)
-    return ok, title_id, f"size={sz} bytes, TitleID=0x{title_id:08X}"
+    return ok, title_id, f"size={sz} bytes, TitleID=0x{title_id:08X}, {sha_note}"
 
 
 def check_toolchain(repo_root: Path) -> int:

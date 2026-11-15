@@ -1,11 +1,25 @@
 #include "mp/mp_bridge.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "core/log.h"
 #include "game/black_addrs.h"
+#include "mp/mp_udp.h"
 #include "netcore/limits.hpp"
 #include "netcore/rules.hpp"
 #include "netcore/session.hpp"
@@ -33,6 +47,7 @@ netcore::Vec3 g_last_local_pos{};
 bool g_has_last_local_pos = false;
 
 std::unique_ptr<netcore::LoopbackEndpoint> g_local_endpoint;
+std::unique_ptr<UdpTransport> g_udp_transport;
 std::unique_ptr<netcore::HostSession> g_host_session;
 std::unique_ptr<netcore::ClientSession> g_client_session;
 
@@ -56,7 +71,8 @@ bool ReadLocalPlayerFromGuest(const uint8_t* base, uint32_t tick, netcore::Playe
     float yaw_rad = 0.0f;
     float pitch_rad = 0.0f;
     const uint32_t world = black::R32(base, black::kWorld);
-    const uint32_t ctrl = world ? black::R32(base, world + black::kWorldController) : 0;
+    // world + kWorldController é um PlayerController embutido na struct World (não é um ponteiro).
+    const uint32_t ctrl = world ? (world + black::kWorldController) : 0;
     if (ctrl) {
         yaw_rad = clamp_angle_rad(black::RF32(base, ctrl + 0x18) * kDegToRad);
         pitch_rad = clamp_angle_rad(black::RF32(base, ctrl + 0x1C) * kDegToRad);
@@ -147,10 +163,10 @@ void RestoreAndTeleportLocalPlayer(uint8_t* base, const netcore::Vec3& pos, floa
     if (!world) return;
     const uint32_t player = world + black::kWorldPlayer;
 
-    if (g_saved_player_controller != 0) {
-        black::W32(base, world + black::kWorldController, g_saved_player_controller);
-        black::W32(base, player + black::kCharControl, g_saved_player_controller);
-    }
+    const uint32_t player_ctrl = world + black::kWorldController;
+    const uint32_t restored_ctrl = g_saved_player_controller != 0 ? g_saved_player_controller : player_ctrl;
+    black::W32(base, player + black::kCharControl, restored_ctrl);
+
     if (g_saved_player_name[0] != 0 || g_saved_player_name[1] != 0) {
         black::W32(base, player + black::kCharName + 0, g_saved_player_name[0]);
         black::W32(base, player + black::kCharName + 4, g_saved_player_name[1]);
@@ -167,19 +183,15 @@ void RestoreAndTeleportLocalPlayer(uint8_t* base, const netcore::Vec3& pos, floa
     black::WF32(base, world + black::kWorldLastPos + 4, pos.y);
     black::WF32(base, world + black::kWorldLastPos + 8, pos.z);
 
-    const uint32_t ctrl = black::R32(base, world + black::kWorldController);
-    if (ctrl) {
-        black::WF32(base, ctrl + 0x18, yaw_rad * kRadToDeg);
-        black::WF32(base, ctrl + 0x1C, 0.0f);
-    }
+    black::WF32(base, player_ctrl + 0x18, yaw_rad * kRadToDeg);
+    black::WF32(base, player_ctrl + 0x1C, 0.0f);
 
     g_last_local_pos = pos;
     g_local_waiting_respawn = false;
     LOGI("mp_bridge: local player respawned at (%.1f, %.1f, %.1f)", pos.x, pos.y, pos.z);
 }
 
-// Proteção contra o crash de colisão quando dois volumes redondos (personagens) ocupam exatamente a mesma coordenada
-// (documentado pelo BLACKReloadedMod).
+// Proteção simples contra volumes de personagens sobrepostos exatamente na mesma coordenada (prevenção de divisão por zero).
 void PreventSamePointCollisionCrash(uint8_t* base) {
     if (!black::IsInLevel(base)) return;
     const uint32_t pool = black::R32(base, black::kPool);
@@ -210,13 +222,164 @@ void PreventSamePointCollisionCrash(uint8_t* base) {
     }
 }
 
+uint16_t ParsePortOrDefault(const std::string& text, uint16_t fallback) {
+    if (text.empty()) return fallback;
+    char* end = nullptr;
+    const unsigned long val = std::strtoul(text.c_str(), &end, 10);
+    if (end == text.c_str() || *end != '\0' || val == 0 || val > 65535) return fallback;
+    return static_cast<uint16_t>(val);
+}
+
+void SplitHostPort(const std::string& spec, std::string& out_host, uint16_t& inout_port) {
+    const std::size_t colon = spec.rfind(':');
+    if (colon == std::string::npos) {
+        out_host = spec;
+        return;
+    }
+    out_host = spec.substr(0, colon);
+    inout_port = ParsePortOrDefault(spec.substr(colon + 1), inout_port);
+}
+
+#ifdef _WIN32
+std::vector<std::string> SplitCommandLineWindows(const char* cmdline) {
+    std::vector<std::string> args;
+    if (!cmdline) return args;
+    const char* p = cmdline;
+    while (*p) {
+        while (*p == ' ' || *p == '\t') ++p;
+        if (!*p) break;
+        std::string cur;
+        bool in_quotes = false;
+        while (*p) {
+            if (*p == '"') {
+                in_quotes = !in_quotes;
+                ++p;
+                continue;
+            }
+            if (!in_quotes && (*p == ' ' || *p == '\t')) break;
+            cur.push_back(*p++);
+        }
+        args.push_back(std::move(cur));
+    }
+    return args;
+}
+#endif
+
 }  // namespace
 
-void InitBridge() {
+void InitBridgeFromArgs(int argc, const char* const* argv) {
     g_frame_count = 0;
     g_remote_actor_va.fill(0);
+
+    bool want_host = false;
+    bool want_client = false;
+    std::string join_target;
+    uint16_t port = kDefaultUdpPort;
+    std::string name;
+
+    for (int i = 1; i < argc; ++i) {
+        if (!argv[i]) continue;
+        const std::string arg = argv[i];
+        if (arg == "--mp-host") {
+            want_host = true;
+            if (i + 1 < argc && argv[i + 1] && argv[i + 1][0] != '-') {
+                port = ParsePortOrDefault(argv[i + 1], port);
+                ++i;
+            }
+        } else if (arg == "--mp-join" && i + 1 < argc && argv[i + 1]) {
+            want_client = true;
+            SplitHostPort(argv[i + 1], join_target, port);
+            ++i;
+        } else if (arg == "--mp-port" && i + 1 < argc && argv[i + 1]) {
+            port = ParsePortOrDefault(argv[i + 1], port);
+            ++i;
+        } else if (arg == "--mp-name" && i + 1 < argc && argv[i + 1]) {
+            name = argv[i + 1];
+            ++i;
+        }
+    }
+
+    if (want_host) {
+        if (!StartHostUdp(port, name.empty() ? "Host" : name)) {
+            LOGE("mp_bridge: failed to start UDP host on port %u; staying OfflineCampaign",
+                 static_cast<unsigned>(port));
+        }
+    } else if (want_client && !join_target.empty()) {
+        if (!StartClientUdp(join_target, port, name.empty() ? "Player" : name)) {
+            LOGE("mp_bridge: failed to start UDP client to %s:%u; staying OfflineCampaign",
+                 join_target.c_str(), static_cast<unsigned>(port));
+        }
+    } else {
+        StopMultiplayer();
+    }
+
     LOGI("mp_bridge: initialized (role=%u, protocol_v=%u)", static_cast<unsigned>(g_role),
          static_cast<unsigned>(netcore::kProtocolVersion));
+}
+
+void InitBridge() {
+#ifdef _WIN32
+    const auto args = SplitCommandLineWindows(GetCommandLineA());
+    std::vector<const char*> ptrs;
+    ptrs.reserve(args.size());
+    for (const auto& s : args) ptrs.push_back(s.c_str());
+    InitBridgeFromArgs(static_cast<int>(ptrs.size()), ptrs.data());
+#else
+    const char* argv0[] = {"black_enhanced"};
+    InitBridgeFromArgs(1, argv0);
+#endif
+}
+
+bool StartHostUdp(uint16_t port, const std::string& player_name) {
+    StopMultiplayer();
+    auto transport = UdpTransport::CreateHost(port);
+    if (!transport || !transport->is_valid()) {
+        return false;
+    }
+    g_udp_transport = std::move(transport);
+    g_host_session = std::make_unique<netcore::HostSession>(
+        *g_udp_transport, netcore::RulesConfig::default_deathmatch(),
+        player_name.empty() ? "Host" : player_name);
+    g_host_session->start_match();
+    g_role = Role::Host;
+    LOGI("mp_bridge: UDP host started on port %u", static_cast<unsigned>(g_udp_transport->local_port()));
+    return true;
+}
+
+bool StartClientUdp(const std::string& remote_host, uint16_t port, const std::string& player_name) {
+    StopMultiplayer();
+    auto transport = UdpTransport::CreateClient(remote_host, port);
+    if (!transport || !transport->is_valid()) {
+        return false;
+    }
+    const netcore::PeerId host_peer = transport->host_peer_id();
+    g_udp_transport = std::move(transport);
+    g_client_session = std::make_unique<netcore::ClientSession>(
+        *g_udp_transport, host_peer, netcore::RulesConfig::default_deathmatch(),
+        player_name.empty() ? "Player" : player_name);
+    g_client_session->send_hello();
+    g_role = Role::Client;
+    LOGI("mp_bridge: UDP client connecting to %s:%u (local port %u)", remote_host.c_str(),
+         static_cast<unsigned>(port), static_cast<unsigned>(g_udp_transport->local_port()));
+    return true;
+}
+
+void StopMultiplayer() {
+    g_role = Role::OfflineCampaign;
+    g_client_session.reset();
+    g_host_session.reset();
+    g_udp_transport.reset();
+    g_local_endpoint.reset();
+    g_remote_actor_va.fill(0);
+    g_saved_player_controller = 0;
+    g_saved_player_name[0] = 0;
+    g_saved_player_name[1] = 0;
+    g_local_waiting_respawn = false;
+    g_has_last_local_pos = false;
+}
+
+bool IsClientJoined() {
+    return g_client_session && g_client_session->is_joined();
 }
 
 void OnImageLoaded(uint8_t* guest_base) {
@@ -277,7 +440,7 @@ void OnPreFrame(uint8_t* guest_base) {
 void OnPostFrame(uint8_t* guest_base) {
     ++g_frame_count;
     if (g_frame_count == 1) {
-        LOGI("mp_bridge: first guest frame hook fired (sub_0020F6A0 verified)");
+        LOGI("mp_bridge: first guest frame hook fired (sub_0020F6A0)");
     }
     if (g_role == Role::OfflineCampaign) return;
 
@@ -287,7 +450,7 @@ void OnPostFrame(uint8_t* guest_base) {
 
     if (g_role == Role::Host && g_host_session) {
         g_host_session->set_local_player_state(local_state);
-    } else if (g_role == Role::Client && g_client_session) {
+    } else if (g_role == Role::Client && g_client_session && g_client_session->is_joined()) {
         g_client_session->send_local_state(local_state);
     }
 }
@@ -325,9 +488,11 @@ void OnLocalPlayerDying(uint8_t* guest_base) {
     if (!world) return;
     const uint32_t player = world + black::kWorldPlayer;
 
-    const uint32_t ctrl = black::R32(guest_base, world + black::kWorldController);
-    if (ctrl && ctrl != player + black::kCharDeathControl) {
-        g_saved_player_controller = ctrl;
+    const uint32_t char_ctrl = black::R32(guest_base, player + black::kCharControl);
+    if (char_ctrl && char_ctrl != player + black::kCharDeathControl) {
+        g_saved_player_controller = char_ctrl;
+    } else if (g_saved_player_controller == 0) {
+        g_saved_player_controller = world + black::kWorldController;
     }
     const uint32_t n0 = black::R32(guest_base, player + black::kCharName + 0);
     const uint32_t n1 = black::R32(guest_base, player + black::kCharName + 4);
@@ -354,18 +519,16 @@ Role CurrentRole() {
 }
 
 void SetRole(Role r) {
+    if (r == Role::OfflineCampaign) {
+        StopMultiplayer();
+        return;
+    }
     g_role = r;
     if (g_role == Role::Host && !g_host_session) {
         g_local_endpoint = std::make_unique<netcore::LoopbackEndpoint>();
         g_host_session = std::make_unique<netcore::HostSession>(
             *g_local_endpoint, netcore::RulesConfig::default_deathmatch(), "Host");
         g_host_session->start_match();
-    } else if (g_role == Role::OfflineCampaign) {
-        g_client_session.reset();
-        g_host_session.reset();
-        g_local_endpoint.reset();
-        g_remote_actor_va.fill(0);
-        g_local_waiting_respawn = false;
     }
 }
 
