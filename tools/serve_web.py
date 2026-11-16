@@ -16,6 +16,7 @@ import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import xiso_extract
@@ -25,6 +26,7 @@ REAL_XBE_MIN_BYTES = 1_000_000
 
 class EnhancedWebHandler(SimpleHTTPRequestHandler):
     data_dir: Path | None = None
+    wasm_dir: Path | None = None
     cdn_url: str = ""
 
     def end_headers(self) -> None:
@@ -42,6 +44,9 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
         if clean_path.startswith("/game_assets/"):
             self.handle_game_asset()
             return
+        if clean_path.startswith("/wasm/"):
+            self.handle_wasm_file()
+            return
         super().do_GET()
 
     def handle_manifest(self) -> None:
@@ -49,6 +54,11 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
         total_bytes = 0
         has_real_xbe = False
         has_iso = False
+        wasm_ready = bool(
+            self.wasm_dir
+            and (self.wasm_dir / "black_enhanced.js").is_file()
+            and (self.wasm_dir / "black_enhanced.wasm").is_file()
+        )
 
         if self.data_dir and self.data_dir.is_dir():
             xbe_path = self.data_dir / "default.xbe"
@@ -73,6 +83,7 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
             "available": available,
             "has_real_xbe": has_real_xbe,
             "has_iso": has_iso,
+            "wasm_ready": wasm_ready,
             "total_bytes": total_bytes,
             "file_count": len(files_info),
             "files": files_info if available else [],
@@ -92,11 +103,38 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def handle_wasm_file(self) -> None:
+        if not self.wasm_dir or not self.wasm_dir.is_dir():
+            self.send_error(404, "WASM build output not found (out/web/)")
+            return
+        rel = unquote(self.path[len("/wasm/") :].split("?")[0]).lstrip("/")
+        target = (self.wasm_dir / rel).resolve()
+        if not str(target).startswith(str(self.wasm_dir.resolve())) or not target.is_file():
+            self.send_error(404, "WASM file not found")
+            return
+        suffix = target.suffix.lower()
+        if suffix == ".wasm":
+            ctype = "application/wasm"
+        elif suffix in (".js", ".mjs"):
+            ctype = "text/javascript; charset=utf-8"
+        elif suffix == ".json" or suffix == ".map":
+            ctype = "application/json; charset=utf-8"
+        else:
+            ctype = "application/octet-stream"
+        size = target.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(size))
+        self.end_headers()
+        with open(target, "rb") as fp:
+            while chunk := fp.read(64 * 1024):
+                self.wfile.write(chunk)
+
     def handle_game_asset(self) -> None:
         if not self.data_dir or not self.data_dir.is_dir():
             self.send_error(404, "Data directory not configured")
             return
-        rel = self.path[len("/game_assets/") :].split("?")[0]
+        rel = unquote(self.path[len("/game_assets/") :].split("?")[0]).lstrip("/")
         # Previne directory traversal
         target = (self.data_dir / rel).resolve()
         if not str(target).startswith(str(self.data_dir.resolve())) or not target.is_file():
@@ -104,8 +142,39 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
             return
 
         size = target.stat().st_size
+        range_hdr = self.headers.get("Range", "")
+        if range_hdr.startswith("bytes="):
+            spec = range_hdr[len("bytes=") :].split(",", 1)[0].strip()
+            parts = spec.split("-", 1)
+            try:
+                start = int(parts[0]) if parts[0] else 0
+                end = int(parts[1]) if len(parts) > 1 and parts[1] else size - 1
+            except ValueError:
+                start, end = 0, size - 1
+            start = max(0, min(start, max(0, size - 1)))
+            end = max(start, min(end, max(0, size - 1)))
+            length = (end - start + 1) if size > 0 else 0
+            self.send_response(206 if size > 0 else 200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.send_header("Content-Length", str(length))
+            self.end_headers()
+            if length > 0:
+                with open(target, "rb") as fp:
+                    fp.seek(start)
+                    rem = length
+                    while rem > 0:
+                        chunk = fp.read(min(64 * 1024, rem))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        rem -= len(chunk)
+            return
+
         self.send_response(200)
         self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(size))
         self.end_headers()
         with open(target, "rb") as fp:
@@ -143,9 +212,12 @@ def main() -> int:
         print(f"[serve_web] Aviso: diretório de dados não existe ({data_dir_path}).")
 
     EnhancedWebHandler.data_dir = data_dir_path
+    EnhancedWebHandler.wasm_dir = repo_root / "out" / "web"
     EnhancedWebHandler.cdn_url = args.cdn_url
 
     handler = partial(EnhancedWebHandler, directory=str(web_dir))
+    if os.name == "nt":
+        ThreadingHTTPServer.allow_reuse_address = False
     server = ThreadingHTTPServer((args.host, port), handler)
     print(f"[serve_web] Servindo {web_dir} em http://{args.host}:{port} (COOP/COEP ativos)")
     if data_dir_path and data_dir_path.is_dir():

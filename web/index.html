@@ -3,26 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BLACK Enhanced Online | Tactical WebRTC + OPFS Console</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <title>BLACK Enhanced Online | Jogue no Navegador (WebGPU + P2P)</title>
+  <link rel="icon" href="data:," />
   <style>
     :root {
-      --bg-base: #0b0c0e;
-      --bg-panel: #12151b;
-      --bg-elevated: #171b23;
-      --border-subtle: #232936;
-      --text-primary: #f1f3f5;
-      --text-secondary: #9ba3b0;
-      --text-muted: #656d7a;
-      --accent-amber: #f59e0b;
-      --accent-amber-dim: rgba(245, 158, 11, 0.14);
-      --status-ok: #10b981;
-      --status-warn: #f59e0b;
-      --font-display: "Chakra Petch", sans-serif;
-      --font-sans: "Inter", system-ui, sans-serif;
-      --font-mono: "JetBrains Mono", monospace;
+      --bg-base: #090a0d;
+      --bg-surface: #11141a;
+      --bg-elevated: #171c25;
+      --bg-scrim: rgba(9, 10, 13, 0.88);
+      --border: #252c38;
+      --border-strong: #374151;
+      --text-primary: #f3f4f6;
+      --text-secondary: #a1aab8;
+      --text-muted: #6b7280;
+      --accent: #f59e0b;
+      --accent-hover: #fbbf24;
+      --accent-dim: rgba(245, 158, 11, 0.14);
+      --ok: #10b981;
+      --ok-dim: rgba(16, 185, 129, 0.14);
+      --err: #ef4444;
+      --radius: 4px;
+      --font-display: "Chakra Petch", "Bahnschrift", "Segoe UI", system-ui, sans-serif;
+      --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
     }
 
     * {
@@ -32,166 +35,524 @@
     }
 
     body {
-      background-color: var(--bg-base);
+      background: var(--bg-base);
       color: var(--text-primary);
       font-family: var(--font-sans);
       font-size: 14px;
-      line-height: 1.5;
-      min-height: 100vh;
+      line-height: 1.45;
+      min-height: 100dvh;
       display: flex;
       flex-direction: column;
+      overflow-x: hidden;
     }
 
+    .hidden {
+      display: none !important;
+    }
+
+    /* Barra superior estilo portal direto (nfsu2.xyz): limpa e funcional */
     .topbar {
-      height: 60px;
-      border-bottom: 1px solid var(--border-subtle);
-      background: var(--bg-panel);
-      padding: 0 24px;
+      height: 52px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 12px;
+      flex-shrink: 0;
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      min-width: 0;
     }
 
     .brand-mark {
-      width: 10px;
-      height: 22px;
-      background: var(--accent-amber);
+      width: 6px;
+      height: 20px;
+      background: var(--accent);
+      border-radius: 2px;
+      flex-shrink: 0;
     }
 
     .brand-title {
       font-family: var(--font-display);
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      white-space: nowrap;
     }
 
-    .brand-sub {
+    .role-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .role-pill[data-mode="host"],
+    .role-pill[data-mode="client"] {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
+    }
+
+    .cap-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg-base);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .cap-badge[data-level="ok"] {
+      border-color: rgba(16, 185, 129, 0.4);
+      color: var(--ok);
+    }
+
+    .cap-badge[data-level="warn"] {
+      border-color: rgba(245, 158, 11, 0.45);
+      color: var(--accent);
+    }
+
+    /* Botões sem quebra de linha */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: #1f2633;
+      border-color: #4b5563;
+    }
+
+    .btn:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    .btn:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #090a0d;
+      font-weight: 700;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    .btn-ok {
+      background: var(--ok);
+      border-color: var(--ok);
+      color: #062218;
+      font-weight: 700;
+    }
+
+    .btn-ok:hover:not(:disabled) {
+      filter: brightness(1.08);
+    }
+
+    .btn-sm {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .secondary-link {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 12px;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+      padding: 2px 4px;
+      white-space: nowrap;
+    }
+
+    .secondary-link:hover {
+      color: var(--accent);
+    }
+
+    /* Palco 16:9 centralizado e protagonista */
+    .stage-shell {
+      width: 100%;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 14px 18px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .viewport-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      min-height: 440px;
+      max-height: calc(100dvh - 148px);
+      background: radial-gradient(circle at 50% 35%, #131823 0%, #07080b 75%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .viewport-wrap.drag-over {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 2px var(--accent-dim);
+    }
+
+    #game-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      outline: none;
+      background: #000;
+    }
+
+    /* Card de entrada limpo e direto ao ponto */
+    .viewport-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(9, 10, 13, 0.78);
+      backdrop-filter: blur(8px);
+      z-index: 20;
+      overflow-y: auto;
+    }
+
+    .launcher-card {
+      width: 100%;
+      max-width: 680px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.72);
+    }
+
+    .launcher-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .launcher-title {
+      font-family: var(--font-display);
+      font-size: clamp(22px, 3vw, 28px);
+      font-weight: 700;
+      line-height: 1.15;
+    }
+
+    .launcher-sub {
+      color: var(--text-secondary);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    /* Seletor de Modo Principal: Campanha Solo vs Multiplayer Online */
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: var(--bg-base);
+      padding: 5px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .mode-tab {
+      padding: 10px 12px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      text-align: left;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+
+    .mode-tab small {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text-muted);
+    }
+
+    .mode-tab:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .mode-tab.active {
+      background: var(--bg-elevated);
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+
+    .mode-tab.active small {
+      color: var(--text-secondary);
+    }
+
+    .mode-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .steps-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .step-chip {
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+
+    .step-chip strong {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+
+    .lobby-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 9px 12px;
+      border-radius: var(--radius);
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .lobby-box[data-ready="true"] {
+      border-color: rgba(16, 185, 129, 0.45);
+      color: #a7f3d0;
+    }
+
+    .asset-bar-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .progress-bar-wrap {
+      width: 100%;
+      height: 5px;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 160ms ease;
+    }
+
+    .asset-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .opfs-status {
       font-family: var(--font-mono);
       font-size: 11px;
       color: var(--text-secondary);
-      padding-left: 10px;
-      border-left: 1px solid var(--border-subtle);
     }
 
-    .cap-strip {
+    .btn-row {
       display: flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
     }
 
-    .cap-badge {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      padding: 4px 8px;
-      border: 1px solid var(--border-subtle);
-      background: var(--bg-elevated);
-      color: var(--text-secondary);
-      letter-spacing: 0.04em;
+    /* Overlay de carregamento inicial (substitui tela preta enquanto WebGPU/XMV abre) */
+    .loading-scrim {
+      position: absolute;
+      inset: 0;
+      z-index: 18;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: rgba(9, 10, 13, 0.92);
+      padding: 20px;
+      text-align: center;
     }
 
-    .cap-badge[data-level="ok"] {
-      border-color: rgba(16, 185, 129, 0.45);
-      color: var(--status-ok);
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2px solid var(--border-strong);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
     }
 
-    .cap-badge[data-level="warn"] {
-      border-color: rgba(245, 158, 11, 0.45);
-      color: var(--status-warn);
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
 
-    .workspace {
-      flex: 1;
-      max-width: 1440px;
+    /* Modais Overlay (Opções/Multiplayer F10, Loja CS B, Placar Tab) */
+    .modal-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      background: var(--bg-scrim);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      overflow-y: auto;
+    }
+
+    .modal-card {
       width: 100%;
-      margin: 0 auto;
-      padding: 20px 24px;
-      display: grid;
-      grid-template-columns: 1.45fr 1fr;
-      gap: 20px;
-    }
-
-    @media (max-width: 1080px) {
-      .workspace {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .panel {
-      background: var(--bg-panel);
-      border: 1px solid var(--border-subtle);
-      padding: 16px;
+      max-width: 880px;
+      max-height: 100%;
+      overflow-y: auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      padding: 18px;
       display: flex;
       flex-direction: column;
       gap: 14px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.78);
     }
 
-    .panel-header {
+    .modal-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--border-subtle);
+      gap: 12px;
       padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
     }
 
-    .panel-title {
+    .modal-title {
       font-family: var(--font-display);
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 700;
-      letter-spacing: 0.07em;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
-      color: var(--text-primary);
     }
 
-    .panel-tag {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--accent-amber);
-    }
-
-    .viewport-wrap {
-      position: relative;
-      border: 1px solid var(--border-subtle);
-      background: #0b0c0e;
-    }
-
-    #tactical-canvas {
-      display: block;
-      width: 100%;
-      height: auto;
-      cursor: crosshair;
-    }
-
-    .viewport-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-secondary);
-    }
-
-    .key-hint {
-      color: var(--text-primary);
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-subtle);
-      padding: 2px 6px;
-    }
-
-    .form-grid {
+    .pause-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .sub-panel {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 13px;
+      display: flex;
+      flex-direction: column;
       gap: 10px;
+    }
+
+    .sub-title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
     }
 
     .field {
@@ -200,98 +561,395 @@
       gap: 4px;
     }
 
-    .field.full {
-      grid-column: 1 / -1;
-    }
-
     .field label {
-      font-family: var(--font-mono);
       font-size: 11px;
       color: var(--text-secondary);
-      text-transform: uppercase;
+      font-family: var(--font-mono);
     }
 
-    .field input {
+    .field input,
+    .field select {
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
       background: var(--bg-base);
-      border: 1px solid var(--border-subtle);
       color: var(--text-primary);
       font-family: var(--font-mono);
       font-size: 13px;
-      padding: 8px 10px;
+    }
+
+    .field input:focus,
+    .field select:focus {
       outline: none;
+      border-color: var(--accent);
     }
 
-    .field input:focus {
-      border-color: var(--accent-amber);
-    }
-
-    .btn-row {
-      display: flex;
+    .form-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 10px;
-      flex-wrap: wrap;
     }
 
-    .btn {
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .slider-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .slider-val {
+      font-family: var(--font-mono);
+      color: var(--accent);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 9px;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .toggle-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Loja CS (apenas em Multiplayer In-Level) */
+    .buy-summary {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .money-pill {
+      color: var(--ok);
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .buy-feedback {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 7px 10px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg-base);
+      color: var(--text-secondary);
+    }
+
+    .buy-feedback[data-tone="ok"] {
+      border-color: rgba(16, 185, 129, 0.5);
+      color: #6ee7b7;
+    }
+
+    .buy-feedback[data-tone="err"] {
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #fca5a5;
+    }
+
+    .buy-columns {
+      display: grid;
+      grid-template-columns: 0.9fr 1.5fr 0.9fr;
+      gap: 12px;
+    }
+
+    .buy-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 290px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .buy-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-primary);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 100ms ease, background 100ms ease;
+    }
+
+    .buy-item:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: #141820;
+    }
+
+    .buy-item.equipped {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .buy-item:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .buy-item-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .buy-item-name {
       font-family: var(--font-display);
       font-size: 13px;
       font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      padding: 9px 14px;
-      border: 1px solid var(--border-subtle);
-      background: var(--bg-elevated);
-      color: var(--text-primary);
-      cursor: pointer;
-      transition: border-color 120ms ease, background 120ms ease;
     }
 
-    .btn-large {
-      padding: 14px 20px;
-      font-size: 15px;
-      width: 100%;
+    .buy-item-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .buy-item-price {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .hotkey-tag {
+      display: inline-block;
+      min-width: 18px;
       text-align: center;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 1px 4px;
+      margin-right: 5px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: 2px;
+      color: var(--text-secondary);
     }
 
-    .progress-bar-wrap {
-      width: 100%;
-      height: 8px;
-      background: var(--bg-base);
-      border: 1px solid var(--border-subtle);
-      overflow: hidden;
-      margin: 4px 0;
+    /* Hitmarker + HUD Multiplayer + Toasts não bloqueantes */
+    .hitmarker {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 22px;
+      height: 22px;
+      transform: translate(-50%, -50%) scale(0.8);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 15;
+      transition: opacity 70ms ease, transform 90ms ease;
     }
 
-    .progress-bar-fill {
-      height: 100%;
-      width: 0%;
-      background: var(--accent-amber);
-      transition: width 150ms ease;
+    .hitmarker::before,
+    .hitmarker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 22px;
+      height: 2px;
+      background: var(--accent);
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
     }
 
-    .secondary-link {
-      background: none;
-      border: none;
-      color: var(--text-muted);
+    .hitmarker::before { transform: translate(-50%, -50%) rotate(45deg); }
+    .hitmarker::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+    .hitmarker.active {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1.1);
+    }
+
+    .ptr-hint {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      z-index: 14;
+      padding: 5px 10px;
+      border-radius: var(--radius);
+      background: rgba(9, 10, 13, 0.82);
+      border: 1px solid var(--border);
       font-family: var(--font-mono);
       font-size: 11px;
-      text-decoration: underline;
-      cursor: pointer;
-      text-align: left;
-      padding: 2px 0;
+      color: var(--text-secondary);
+      pointer-events: none;
     }
 
-    .secondary-link:hover {
+    .stage-toast {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 25;
+      padding: 7px 14px;
+      border-radius: var(--radius);
+      background: rgba(17, 20, 26, 0.94);
+      border: 1px solid var(--accent);
+      font-family: var(--font-mono);
+      font-size: 12px;
       color: var(--text-primary);
+      pointer-events: none;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
     }
 
-    .btn-primary {
-      background: var(--accent-amber);
-      border-color: var(--accent-amber);
-      color: #0b0c0e;
+    /* HUD inferior para menus do console (!inLevel) e para Multiplayer em fase */
+    .menu-assist-bar {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 13;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      background: rgba(9, 10, 13, 0.82);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
     }
 
-    .btn-primary:hover {
-      background: #fbbf24;
+    .hud-strip {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 13;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 7px 12px;
+      background: rgba(9, 10, 13, 0.8);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .hud-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .hud-chip {
+      padding: 4px 8px;
+      border-radius: var(--radius);
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .hud-chip.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Faixa discreta de controles abaixo do palco */
+    .viewport-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 14px;
+      flex-wrap: wrap;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    #controls-footer-keys {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 12px;
+    }
+
+    .hint-item {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .key-hint {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      border-radius: 3px;
+      margin-right: 4px;
+    }
+
+    /* Gaveta de Desenvolvedor recolhida */
+    .dev-drawer {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-surface);
+      margin-top: 4px;
+    }
+
+    .dev-drawer summary {
+      padding: 9px 14px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .dev-drawer summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .dev-body {
+      padding: 14px;
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 14px;
     }
 
     .telemetry-grid {
@@ -302,8 +960,9 @@
 
     .tel-item {
       background: var(--bg-base);
-      border: 1px solid var(--border-subtle);
-      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 7px 9px;
     }
 
     .tel-item.full {
@@ -321,9 +980,8 @@
       font-family: var(--font-mono);
       font-size: 12px;
       color: var(--text-primary);
-      font-variant-numeric: tabular-nums;
       margin-top: 2px;
-      word-break: break-all;
+      word-break: break-word;
     }
 
     table {
@@ -333,37 +991,28 @@
     }
 
     th, td {
+      padding: 6px 8px;
       text-align: left;
-      padding: 7px 8px;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border);
     }
 
     th {
       font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-secondary);
+      font-size: 10px;
       text-transform: uppercase;
+      color: var(--text-muted);
     }
 
     .mono {
       font-family: var(--font-mono);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .opfs-status {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-secondary);
-      background: var(--bg-base);
-      border: 1px solid var(--border-subtle);
-      padding: 8px 10px;
     }
 
     #event-log {
-      background: var(--bg-base);
-      border: 1px solid var(--border-subtle);
-      height: 150px;
+      height: 170px;
       overflow-y: auto;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       padding: 8px 10px;
       font-family: var(--font-mono);
       font-size: 11px;
@@ -372,22 +1021,22 @@
       gap: 4px;
     }
 
-    .log-entry {
-      display: flex;
-      gap: 8px;
-    }
+    .log-entry { display: flex; gap: 8px; }
+    .log-time { color: var(--text-muted); }
+    .log-tag { color: var(--accent); font-weight: 600; }
+    .log-msg { color: var(--text-secondary); }
 
-    .log-time {
-      color: var(--text-muted);
-    }
-
-    .log-tag {
-      color: var(--accent-amber);
-      font-weight: 600;
-    }
-
-    .log-msg {
-      color: var(--text-secondary);
+    @media (max-width: 900px) {
+      .mode-tabs,
+      .steps-strip,
+      .pause-grid,
+      .buy-columns,
+      .dev-body {
+        grid-template-columns: 1fr;
+      }
+      .cap-badge {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -395,147 +1044,381 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark"></div>
-      <div class="brand-title">BLACK Enhanced Online</div>
-      <div class="brand-sub">XBE 0x45410083 // NETCORE v1 (0xB1AC)</div>
+      <div class="brand-title">BLACK Online</div>
+      <span id="top-role-pill" class="role-pill" data-mode="offline">CAMPANHA SOLO</span>
     </div>
-    <div class="cap-strip">
-      <span id="cap-webgpu" class="cap-badge" data-level="warn">BANCADA P2P (SEM MOTOR WASM)</span>
-      <span id="cap-sab" class="cap-badge">COOP/COEP...</span>
-      <span id="cap-opfs" class="cap-badge">OPFS...</span>
-      <span id="cap-webrtc" class="cap-badge">WEBRTC...</span>
+
+    <div class="topbar-actions">
+      <span id="cap-webgpu" class="cap-badge" data-level="warn">WEBGPU...</span>
+      <span id="cap-webrtc" class="cap-badge">P2P</span>
+      <button id="btn-open-buy" class="btn btn-sm hidden" type="button">Loja Loadout (B)</button>
+      <button id="btn-open-options" class="btn btn-sm" type="button">Opções / Online (F10)</button>
+      <button id="btn-fullscreen" class="btn btn-sm" type="button">Tela Cheia</button>
     </div>
   </header>
 
-  <main class="workspace">
-    <section class="panel">
-      <div class="panel-header">
-        <span class="panel-title">Bancada P2P 2D (Simulação libs/netcore — Sem Motor BLACK)</span>
-        <span id="viewport-mode-tag" class="panel-tag">TESTE 0xB1AC // FASE 5 PROTÓTIPO</span>
+  <main class="stage-shell">
+    <div id="viewport-wrap" class="viewport-wrap">
+      <canvas id="game-canvas" width="1280" height="720" tabindex="0"></canvas>
+
+      <div id="hitmarker-el" class="hitmarker"></div>
+      <div id="stage-toast" class="stage-toast hidden"></div>
+
+      <div id="ptr-hint" class="ptr-hint hidden">
+        Clique no jogo para travar mira · Esc libera o cursor · F10 Opções
       </div>
 
-      <div class="viewport-wrap">
-        <canvas id="tactical-canvas" width="760" height="440"></canvas>
-      </div>
-
-      <div id="mp-controls-hint" class="viewport-footer">
-        <div>
-          <span class="key-hint">WASD</span> Mover
-          <span class="key-hint">SHIFT</span> Agachar (+0x3A1)
-          <span class="key-hint">1 / 2 / 3</span> Arma (M16A2 / SPAS-12 / AWP)
-          <span class="key-hint">CLICK</span> Disparar
+      <!-- Barra discreta durante telas de título e menus do Xbox (!inLevel) -->
+      <div id="menu-assist-bar" class="menu-assist-bar hidden">
+        <div class="hud-group">
+          <span style="color: var(--accent); font-weight: 600;">MENU DO JOGO</span>
+          <span><span class="key-hint">Enter</span> Start / Pular</span>
+          <span><span class="key-hint">Espaço</span> Confirmar (A)</span>
+          <span><span class="key-hint">Setas / WASD</span> Navegar</span>
+          <span><span class="key-hint">Backspace</span> Voltar (B)</span>
         </div>
-        <div>Abra uma segunda aba com o mesmo código para testar WebRTC P2P</div>
+        <div class="hud-group">
+          <button id="btn-assist-start" class="hud-chip active" type="button">Pular Intro / Start</button>
+          <button id="btn-assist-a" class="hud-chip" type="button">Confirmar (A)</button>
+          <button id="btn-assist-mp-hint" class="hud-chip hidden" type="button">Como Jogar Online?</button>
+        </div>
       </div>
 
-      <div id="mp-scoreboard-panel">
-        <div class="panel-header" style="margin-top: 4px;">
-          <span class="panel-title">Placar da Sessão (Autoritativo no Host)</span>
-          <span class="panel-tag">LIMITE: 15 KILLS</span>
+      <!-- HUD Loadout (EXCLUSIVO do modo Multiplayer dentro de fase) -->
+      <div id="hud-strip" class="hud-strip hidden">
+        <div class="hud-group">
+          <span>HP <strong id="hud-hp" style="color: var(--text-primary);">100</strong></span>
+          <span>|</span>
+          <span id="hud-credits" style="color: var(--ok); font-weight: 700;">$1500 / $8000</span>
+          <span id="hud-buy-window" style="color: var(--accent);">COMPRA ABERTA</span>
         </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Slot</th>
-              <th>Operador</th>
-              <th>Estado (+0x2F0)</th>
-              <th>Arma (+0x29C)</th>
-              <th>Kills</th>
-              <th>Deaths</th>
-            </tr>
-          </thead>
-          <tbody id="scoreboard-body"></tbody>
-        </table>
+        <div class="hud-group">
+          <button id="hud-slot-primary" class="hud-chip" type="button">[1] Primária: —</button>
+          <button id="hud-slot-secondary" class="hud-chip active" type="button">[2] Secundária: Glock 19</button>
+          <span id="hud-tactical" style="color: var(--text-secondary);"></span>
+        </div>
+        <div class="hud-group">
+          <button id="hud-btn-buy" class="hud-chip" type="button">[B] Loadout</button>
+          <button id="hud-btn-score" class="hud-chip" type="button">[Tab] Placar</button>
+        </div>
       </div>
-    </section>
 
-    <aside style="display: flex; flex-direction: column; gap: 20px;">
-      <section class="panel">
-        <div class="panel-header">
-          <span class="panel-title">Sinalização WebRTC & Sala</span>
-          <span class="panel-tag">DATACHANNELS: RELIABLE + UNRELIABLE</span>
-        </div>
+      <!-- Loading Scrim visível apenas entre clique de boot e primeiro quadro WebGPU -->
+      <div id="overlay-loading" class="loading-scrim hidden">
+        <div class="spinner"></div>
+        <div id="loading-title" class="modal-title">Inicializando BLACK no Navegador...</div>
+        <div id="loading-sub" class="opfs-status">Carregando WebAssembly, WebGPU shaders e áudio...</div>
+      </div>
 
-        <div class="form-grid">
-          <div class="field">
-            <label for="room-code-input">Código da Sala (6 chars)</label>
-            <input id="room-code-input" type="text" maxlength="6" value="VEX401" />
+      <!-- Overlay Inicial limpo (estilo nfsu2.xyz) -->
+      <div id="overlay-launcher" class="viewport-overlay">
+        <div class="launcher-card">
+          <div class="launcher-head">
+            <div>
+              <div class="eyebrow">BLACK (Xbox 2006) · WEBGPU + WASM + WEBAUDIO</div>
+              <h1 class="launcher-title">BLACK no Navegador</h1>
+              <p class="launcher-sub">
+                Rode BLACK direto no browser com mira 1:1 opcional, FOV ajustável e Multiplayer P2P com compra de loadout por orçamento.
+              </p>
+            </div>
+            <button id="btn-launcher-options" class="btn btn-sm" type="button">⚙ Controles &amp; FOV</button>
           </div>
-          <div class="field">
-            <label for="operator-name-input">Codinome do Operador</label>
-            <input id="operator-name-input" type="text" maxlength="16" value="KELLAR" />
+
+          <div class="mode-tabs" role="tablist" aria-label="Modo de jogo">
+            <button id="tab-solo" class="mode-tab active" type="button" role="tab" aria-selected="true">
+              Campanha Solo
+              <small>Missões originais, sem loja ou placar online</small>
+            </button>
+            <button id="tab-multiplayer" class="mode-tab" type="button" role="tab" aria-selected="false">
+              Multiplayer Online (P2P)
+              <small>Sala entre amigos + Loadout estilo CS (B)</small>
+            </button>
           </div>
-          <div class="field full">
-            <label for="signaling-url-input">Worker URL (vazio = BroadcastChannel P2P local entre abas)</label>
+
+          <!-- Painel Campanha Solo -->
+          <div id="panel-solo" class="mode-panel">
+            <label class="toggle-row">
+              <span>Modo Enhanced FPS (Mira direta 1:1 no mouse + FOV 88° + Hitmarker)</span>
+              <input id="launch-enhanced-toggle" type="checkbox" checked />
+            </label>
+            <div class="btn-row">
+              <button id="btn-play-solo" class="btn btn-primary" type="button">▶ Jogar Campanha</button>
+            </div>
+          </div>
+
+          <!-- Painel Multiplayer P2P transparente -->
+          <div id="panel-mp" class="mode-panel hidden">
+            <div class="steps-strip">
+              <div class="step-chip">
+                <strong>1. SALA P2P</strong>
+                Crie uma sala e envie o link de convite, ou cole o código de um amigo.
+              </div>
+              <div class="step-chip">
+                <strong>2. MESMA MISSÃO</strong>
+                Todos iniciam o jogo e entram na mesma missão (ex.: Missão 1) para spawnar juntos.
+              </div>
+              <div class="step-chip">
+                <strong>3. LOADOUT [B]</strong>
+                Na fase, aperte B para comprar armas dentro do limite de créditos da sala.
+              </div>
+            </div>
+
+            <div class="form-2col">
+              <div class="field">
+                <label for="mp-player-name">Seu Codinome</label>
+                <input id="mp-player-name" type="text" maxlength="16" value="KELLAR" />
+              </div>
+              <div class="field">
+                <label for="mp-room-code">Código da Sala</label>
+                <div style="display: flex; gap: 6px;">
+                  <input id="mp-room-code" type="text" maxlength="6" value="VEX401" style="flex: 1; min-width: 0;" />
+                  <button id="btn-rand-code" class="btn btn-sm" type="button">Gerar</button>
+                  <button id="btn-copy-invite" class="btn btn-sm" type="button">Copiar Link</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-2col">
+              <div class="field">
+                <label for="mp-economy-mode">Economia da Loja CS</label>
+                <select id="mp-economy-mode">
+                  <option value="dynamic" selected>CS Dinâmico ($1500 + Kills)</option>
+                  <option value="fixed">Orçamento Fixo (Limite da Sala)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="mp-budget-cap">Teto / Orçamento ($)</label>
+                <select id="mp-budget-cap">
+                  <option value="3000">$3.000 (Tático Restrito)</option>
+                  <option value="5000">$5.000 (Médio)</option>
+                  <option value="8000" selected>$8.000 (Padrão CS)</option>
+                  <option value="16000">$16.000 (Livre)</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="mp-lobby-status" class="lobby-box" data-ready="false">
+              <span id="mp-lobby-text">Nenhuma sala ativa. Crie uma sala como Host ou entre usando o código.</span>
+              <span id="mp-lobby-peers" class="mono">0 par(es)</span>
+            </div>
+
+            <div class="btn-row">
+              <button id="btn-mp-host" class="btn btn-primary" type="button">Criar Sala (Host)</button>
+              <button id="btn-mp-join" class="btn" type="button">Entrar na Sala</button>
+              <button id="btn-play-mp" class="btn btn-ok" type="button" disabled>▶ Iniciar na Sala</button>
+            </div>
+          </div>
+
+          <div class="asset-bar-row">
+            <div class="progress-bar-wrap">
+              <div id="asset-progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <div class="asset-foot">
+              <div id="opfs-status" class="opfs-status">Verificando arquivos de BLACK...</div>
+              <div class="btn-row" style="gap: 12px;">
+                <button id="btn-pick-files" class="secondary-link" type="button">Pasta de BLACK</button>
+                <button id="btn-pick-iso" class="secondary-link" type="button">Arquivo .ISO/.XISO</button>
+                <button id="btn-sync-opfs" class="secondary-link" type="button">Cache Offline (OPFS)</button>
+              </div>
+            </div>
+          </div>
+          <input id="xbe-file-input" type="file" multiple webkitdirectory style="display: none;" />
+          <input id="iso-file-input" type="file" accept=".iso,.xiso" style="display: none;" />
+        </div>
+      </div>
+
+      <!-- Modal Unificado: Opções Enhanced + Controle de Sala Online (F10 ou botão Topbar) -->
+      <div id="overlay-options" class="modal-overlay hidden">
+        <div class="modal-card">
+          <div class="modal-head">
+            <span class="modal-title">Opções · Controles &amp; Sala Multiplayer</span>
+            <div class="btn-row">
+              <button id="btn-open-buy-from-opt" class="btn btn-sm hidden" type="button">Abrir Loja Loadout [B]</button>
+              <button id="btn-close-options" class="btn btn-primary btn-sm" type="button">Voltar ao Jogo</button>
+            </div>
+          </div>
+
+          <div class="pause-grid">
+            <div class="sub-panel">
+              <div class="sub-title">Controles &amp; Câmera Enhanced</div>
+
+              <label class="toggle-row">
+                <span>Mira Direta 1:1 no Mouse (sem curva analógica)</span>
+                <input id="opt-mouse-direct" type="checkbox" checked />
+              </label>
+
+              <div class="slider-row">
+                <div class="slider-head">
+                  <span>Sensibilidade Mouse</span>
+                  <span id="opt-mouse-sens-val" class="slider-val">0.085°/px</span>
+                </div>
+                <input id="opt-mouse-sens" type="range" min="0.02" max="0.25" step="0.005" value="0.085" />
+              </div>
+
+              <div class="slider-row">
+                <div class="slider-head">
+                  <span>Multiplicador ADS (Zoom)</span>
+                  <span id="opt-ads-sens-val" class="slider-val">0.70x</span>
+                </div>
+                <input id="opt-ads-sens" type="range" min="0.30" max="1.50" step="0.05" value="0.70" />
+              </div>
+
+              <div class="slider-row">
+                <div class="slider-head">
+                  <span>Campo de Visão (FOV) — Clássico = 70°</span>
+                  <span id="opt-fov-val" class="slider-val">88°</span>
+                </div>
+                <input id="opt-fov" type="range" min="70" max="110" step="1" value="88" />
+              </div>
+
+              <div class="form-2col">
+                <label class="toggle-row">
+                  <span>Inverter Eixo Y</span>
+                  <input id="opt-invert-y" type="checkbox" />
+                </label>
+                <label class="toggle-row">
+                  <span>Hitmarker HUD</span>
+                  <input id="opt-hitmarker" type="checkbox" checked />
+                </label>
+              </div>
+
+              <button id="btn-vanilla-preset" class="secondary-link" type="button">
+                Restaurar padrão Xbox Clássico (70° FOV, curva analógica)
+              </button>
+            </div>
+
+            <div class="sub-panel">
+              <div class="sub-title">Sessão Online P2P</div>
+              <div id="opt-mp-status" class="opfs-status">Modo atual: Campanha Solo</div>
+              <div class="form-2col">
+                <div class="field">
+                  <label for="opt-room-code">Código da Sala</label>
+                  <input id="opt-room-code" type="text" maxlength="6" value="VEX401" />
+                </div>
+                <div class="field">
+                  <label for="opt-player-name">Codinome</label>
+                  <input id="opt-player-name" type="text" maxlength="16" value="KELLAR" />
+                </div>
+              </div>
+              <div class="btn-row">
+                <button id="btn-opt-switch-solo" class="btn btn-sm" type="button">Voltar p/ Campanha Solo</button>
+                <button id="btn-opt-host" class="btn btn-sm btn-primary" type="button">Criar Sala Host</button>
+                <button id="btn-opt-join" class="btn btn-sm" type="button">Entrar como Client</button>
+                <button id="btn-opt-copy-link" class="btn btn-sm" type="button">Copiar Convite</button>
+              </div>
+              <div class="opfs-status">
+                Dica: em Multiplayer P2P, cada jogador deve entrar na mesma missão do BLACK (ex.: Missão 1). Na fase, use <strong>[B]</strong> para comprar seu loadout e <strong>[Tab]</strong> para o placar.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loja CS-Style (APENAS em Multiplayer e dentro da missão) -->
+      <div id="overlay-buy" class="modal-overlay hidden">
+        <div class="modal-card">
+          <div class="modal-head">
+            <span class="modal-title">Loja de Loadout CS · Equipamento com Limite</span>
+            <div class="btn-row">
+              <button id="btn-rebuy-kit" class="btn btn-sm" type="button">Recomprar [F1]</button>
+              <button id="btn-close-buy" class="btn btn-primary btn-sm" type="button">Voltar ao Combate [B]</button>
+            </div>
+          </div>
+
+          <div class="buy-summary">
+            <span>Saldo: <strong id="buy-credits-val" class="money-pill">$1.500</strong></span>
+            <span>Teto: <strong id="buy-cap-val" class="mono">$8.000</strong></span>
+            <span>Kit Atual: <strong id="buy-kit-cost-val" class="mono">$0</strong></span>
+            <span>Janela: <strong id="buy-window-val" class="mono">ABERTA</strong></span>
+          </div>
+
+          <div id="buy-feedback" class="buy-feedback">
+            Escolha sua arma ou pressione [1-9] dentro do orçamento da sala.
+          </div>
+
+          <div class="buy-columns">
+            <div class="sub-panel">
+              <div class="sub-title">Pistolas (Secundária)</div>
+              <div id="buy-col-secondary" class="buy-list"></div>
+            </div>
+
+            <div class="sub-panel">
+              <div class="sub-title">Armas Primárias</div>
+              <div id="buy-col-primary" class="buy-list"></div>
+            </div>
+
+            <div class="sub-panel">
+              <div class="sub-title">Proteção &amp; Tático</div>
+              <div id="buy-col-tactical" class="buy-list"></div>
+              <div class="opfs-status" id="buy-current-kit">
+                Primária: Nenhuma<br />Secundária: Glock 19<br />Proteção: Padrão
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Placar Multiplayer (Tab, EXCLUSIVO Multiplayer) -->
+      <div id="overlay-scoreboard" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 680px;">
+          <div class="modal-head">
+            <span class="modal-title">Placar da Sala Online</span>
+            <span class="role-pill" id="score-mode-tag">WEBRTC P2P</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Slot</th>
+                <th>Operador</th>
+                <th>Vida</th>
+                <th>Loadout</th>
+                <th>Abates</th>
+                <th>Mortes</th>
+              </tr>
+            </thead>
+            <tbody id="overlay-score-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="controls-footer" class="viewport-footer">
+      <div id="controls-footer-keys">
+        <span class="hint-item"><span class="key-hint">WASD</span> Mover</span>
+        <span class="hint-item"><span class="key-hint">Mouse</span> Mirar</span>
+        <span class="hint-item"><span class="key-hint">Clique Esq/Dir</span> Atirar / Zoom</span>
+        <span class="hint-item"><span class="key-hint">R</span> Recarregar</span>
+        <span class="hint-item"><span class="key-hint">E / Q / G</span> Trocar / Granada / Modo</span>
+        <span class="hint-item"><span class="key-hint">F10</span> Opções</span>
+      </div>
+      <div>WebGPU + WebAudio 48 kHz + Gamepad</div>
+    </div>
+
+    <!-- Gaveta Técnica recolhida por padrão (sem Bancada 2D) -->
+    <details id="dev-drawer" class="dev-drawer">
+      <summary>
+        <span>Diagnóstico &amp; Rede (Telemetria WASM, Servidor Worker WebRTC e Log)</span>
+        <span id="dev-summary-metrics" class="mono">0 quadros · TX 0 / RX 0</span>
+      </summary>
+      <div class="dev-body">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="field">
+            <label for="signaling-url-input">Worker URL WebRTC (vazio = BroadcastChannel entre abas locais)</label>
             <input id="signaling-url-input" type="text" placeholder="wss://black-enhanced-signaling.seu-subdominio.workers.dev" />
           </div>
-        </div>
 
-        <div class="btn-row">
-          <button id="btn-host-room" class="btn btn-primary" type="button">Criar Sala (Host #0)</button>
-          <button id="btn-join-room" class="btn" type="button">Entrar na Sala (Cliente #1..#3)</button>
-        </div>
-
-        <div class="telemetry-grid">
-          <div class="tel-item">
-            <div class="tel-label">Papel na Sessão</div>
-            <div id="tel-role" class="tel-val">HOST</div>
-          </div>
-          <div class="tel-item">
-            <div class="tel-label">Slot / Guest Addr</div>
-            <div id="tel-slot" class="tel-val">#0 (0x01C063EC)</div>
-          </div>
-          <div class="tel-item">
-            <div class="tel-label">Tick / Snapshot</div>
-            <div id="tel-tick" class="tel-val">0 (30 Hz)</div>
-          </div>
-          <div class="tel-item">
-            <div class="tel-label">RTT Medido</div>
-            <div id="tel-rtt" class="tel-val">0 ms</div>
-          </div>
-          <div class="tel-item">
-            <div class="tel-label">Pacotes (libs/netcore)</div>
-            <div id="tel-packets" class="tel-val">TX 0 / RX 0</div>
-          </div>
-          <div class="tel-item full">
-            <div class="tel-label">Último Quadro Binário (0xB1AC Little-Endian)</div>
-            <div id="tel-hex" class="tel-val">AC B1 ...</div>
+          <div class="telemetry-grid">
+            <div class="tel-item"><div class="tel-label">Modo</div><div id="tel-role" class="tel-val">SOLO</div></div>
+            <div class="tel-item"><div class="tel-label">Slot / Tick</div><div id="tel-slot" class="tel-val">#0</div></div>
+            <div class="tel-item"><div class="tel-label">RTT / Pacotes</div><div id="tel-packets" class="tel-val">TX 0 / RX 0</div></div>
+            <div class="tel-item"><div class="tel-label">Motor WASM</div><div id="tel-engine" class="tel-val">PRONTO</div></div>
+            <div class="tel-item full"><div class="tel-label">WebGPU &amp; Áudio</div><div id="tel-render" class="tel-val">Aguardando início</div></div>
           </div>
         </div>
-      </section>
 
-      <section class="panel">
-        <div class="panel-header">
-          <span class="panel-title">Dados do Jogo (Auto-Stream / Cache OPFS)</span>
-          <span class="panel-tag">INSTANT PLAY</span>
-        </div>
-
-        <button id="btn-auto-play" class="btn btn-primary btn-large" type="button">
-          ▶ ENTRAR NO COMBATE (JOGAR)
-        </button>
-
-        <div class="progress-bar-wrap">
-          <div id="asset-progress-bar" class="progress-bar-fill"></div>
-        </div>
-
-        <div id="opfs-status" class="opfs-status">
-          Verificando cache local no navegador...
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-          <button id="btn-pick-files" class="secondary-link" type="button">
-            Opção manual: selecionar pasta local de BLACK ou mods
-          </button>
-          <input id="xbe-file-input" type="file" multiple webkitdirectory style="display: none;" />
-        </div>
-
-        <div class="panel-header" style="margin-top: 4px;">
-          <span class="panel-title">Barramento de Eventos</span>
-          <span class="panel-tag">TRACE</span>
-        </div>
         <div id="event-log"></div>
-      </section>
-    </aside>
+      </div>
+    </details>
   </main>
 
   <script type="module" src="./app.js"></script>

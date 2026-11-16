@@ -35,6 +35,10 @@ coop-online.toml
 .env
 .env.*
 
+# Python cache
+__pycache__/
+*.py[cod]
+
 # Editors and local scratch
 .vs/
 .vscode/

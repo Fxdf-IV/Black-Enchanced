@@ -100,6 +100,23 @@ void test_protocol_roundtrip_all_messages() {
     check_roundtrip(Pong{.nonce = 99, .echo_ms = 123456, .host_tick = 305});
     check_roundtrip(Leave{.reason = 0});
     check_roundtrip(Kick{.reason = KickReason::RateLimited});
+    check_roundtrip(LoadoutRequest{
+        .primary_weapon = 7,
+        .secondary_weapon = 1,
+        .tactical_flags = kLoadoutArmor | kLoadoutTactical,
+    });
+    check_roundtrip(LoadoutRequest{.primary_weapon = kNoWeapon, .secondary_weapon = 0, .tactical_flags = 0});
+    check_roundtrip(LoadoutState{
+        .player_id = 1,
+        .primary_weapon = 8,
+        .secondary_weapon = 2,
+        .tactical_flags = kLoadoutArmor,
+        .last_result = 0,
+        .credits = 2450,
+        .max_credits = 8000,
+        .kit_cost = 4250,
+        .buy_ticks_left = 300,
+    });
 }
 
 void test_hostile_and_malformed_inputs() {
@@ -169,6 +186,11 @@ void test_hostile_and_malformed_inputs() {
     with_trailing.push_back(0x00);
     CHECK(decode(with_trailing).error == DecodeError::TrailingBytes);
 
+    // 8b. Loadout com flags inválidos ou arma fora de faixa deve ser rejeitado
+    CHECK(!is_valid(Message{LoadoutRequest{.primary_weapon = kMaxWeapons, .secondary_weapon = 0, .tactical_flags = 0}}));
+    CHECK(!is_valid(Message{LoadoutRequest{.primary_weapon = 7, .secondary_weapon = 0, .tactical_flags = 0x80}}));
+    CHECK(!is_valid(Message{LoadoutState{.player_id = kMaxPlayers, .primary_weapon = 7, .secondary_weapon = 0, .tactical_flags = 0, .last_result = 0}}));
+
     // 9. Fuzz determinístico (10.000 pacotes pseudoaleatórios nunca podem causar falha ou leitura inválida)
     std::mt19937 rng(0xB1AC2006u);
     for (int i = 0; i < 10000; ++i) {
@@ -178,7 +200,7 @@ void test_hostile_and_malformed_inputs() {
         if (len >= 3 && (rng() % 2 == 0)) {
             buf[0] = uint8_t(kPacketMagic);
             buf[1] = uint8_t(kPacketMagic >> 8);
-            buf[2] = static_cast<uint8_t>(1 + (rng() % 16));
+            buf[2] = static_cast<uint8_t>(1 + (rng() % 18));
         }
         auto res = decode(buf);
         if (res.message.has_value()) {
@@ -337,6 +359,321 @@ void test_rate_limit_and_malformed_kick() {
     CHECK(host.player_count() == 1);
 }
 
+void test_host_apply_damage_and_kill_attribution() {
+    auto rules = RulesConfig::default_deathmatch();
+    rules.kill_limit = 2;
+    rules.respawn_delay_ticks = 4;
+
+    LoopbackEndpoint host_ep, c1_ep;
+    auto [h1, p1] = LoopbackEndpoint::link(host_ep, c1_ep);
+    (void)h1;
+
+    HostSession host(host_ep, rules, "Host");
+    ClientSession c1(c1_ep, p1, rules, "Client1");
+    CHECK(c1.send_hello());
+    host.tick();
+    c1.poll();
+    CHECK(c1.is_joined() && c1.local_player_id() == 1);
+
+    // Em Warmup (antes de start_match) não aceita dano autoritativo
+    CHECK(!host.apply_damage(0, 1, 25, 7));
+
+    host.start_match();
+    c1.poll();
+    c1.clear_events();
+
+    // Validações de limites e alvos inválidos
+    CHECK(!host.apply_damage(0, 0, 10, 0));              // auto-dano
+    CHECK(!host.apply_damage(kMaxPlayers, 1, 10, 0));    // atacante fora da faixa
+    CHECK(!host.apply_damage(0, kMaxPlayers, 10, 0));    // vítima fora da faixa
+    CHECK(!host.apply_damage(0, 2, 10, 0));              // slot desocupado
+    CHECK(!host.apply_damage(0, 1, 0, 0));               // dano zero
+    CHECK(!host.apply_damage(0, 1, 10, kMaxWeapons));    // arma inválida
+
+    // Dano não letal de Host (0) para Client1 (1)
+    CHECK(host.apply_damage(0, 1, 40, 7));
+    host.tick();
+    c1.poll();
+    CHECK(host.slots()[1].health == 60);
+    CHECK((host.slots()[1].flags & kFlagAlive) != 0);
+    CHECK(!c1.recent_damages().empty());
+    CHECK(c1.recent_damages().back().attacker == 0);
+    CHECK(c1.recent_damages().back().target == 1);
+    CHECK(c1.recent_damages().back().amount == 40);
+    CHECK(c1.recent_damages().back().health_after == 60);
+    CHECK(c1.recent_deaths().empty());
+    c1.clear_events();
+
+    // Dano letal com atribuição de kill/death e prevenção de duplo abate no mesmo corpo morto
+    CHECK(host.apply_damage(0, 1, 75, 7));
+    CHECK(!host.apply_damage(0, 1, 10, 7));  // vítima já morta
+    host.tick();
+    c1.poll();
+    CHECK(host.slots()[1].health == 0);
+    CHECK((host.slots()[1].flags & kFlagAlive) == 0);
+    CHECK(host.slots()[0].kills == 1);
+    CHECK(host.slots()[1].deaths == 1);
+    CHECK(!c1.recent_deaths().empty());
+    CHECK(c1.recent_deaths().back().victim == 1);
+    CHECK(c1.recent_deaths().back().killer == 0);
+    CHECK(c1.recent_deaths().back().weapon == 7);
+    c1.clear_events();
+
+    // Aguarda respawn automático após respawn_delay_ticks e finaliza no kill_limit = 2
+    for (int i = 0; i < 5; ++i) host.tick();
+    c1.poll();
+    CHECK((host.slots()[1].flags & kFlagAlive) != 0);
+    CHECK(host.slots()[1].health == 100);
+
+    CHECK(host.apply_damage(0, 1, 100, 15));
+    host.tick();
+    c1.poll();
+    CHECK(host.phase() == MatchPhase::Ended);
+    CHECK(host.winner() == 0);
+    CHECK(c1.phase() == MatchPhase::Ended);
+    CHECK(c1.winner() == 0);
+
+    // Nova sessão para validar resiliência de Hello reenviado, set_spawn_points e raycast de disparo
+    HostSession host2(host_ep, rules, "Host2");
+    ClientSession c2(c1_ep, p1, rules, "Client2");
+    CHECK(c2.send_hello());
+    host2.tick();
+    c2.poll();
+    CHECK(c2.is_joined() && c2.local_player_id() == 1);
+    const std::size_t count_before = host2.player_count();
+
+    // Reenvio de Hello pelo mesmo peer mantém mesmo player_id e contagem de jogadores
+    CHECK(c2.send_hello());
+    host2.tick();
+    c2.poll();
+    CHECK(c2.is_joined() && c2.local_player_id() == 1);
+    CHECK(host2.player_count() == count_before);
+
+    // Atualiza spawns para coordenadas reais da fase sem alterar rules_hash
+    host2.set_spawn_points({
+        SpawnPoint{Vec3{-10.0f, 0.0f, 50.0f}, 0.0f},
+        SpawnPoint{Vec3{-10.0f, 0.0f, 60.0f}, 3.14f},
+    });
+    host2.start_match();
+    c2.poll();
+
+    // Primeiro PlayerState após spawn/teleport não deve disparar kick anti-cheat por deslocamento
+    host2.set_local_player_state(PlayerState{
+        .sequence = 1,
+        .client_tick = host2.current_tick(),
+        .position = Vec3{-10.0f, 0.0f, 50.0f},
+        .yaw = 0.0f,
+        .pitch = 0.0f,
+        .velocity = Vec3{0.0f, 0.0f, 0.0f},
+        .anim_state = 0,
+        .weapon = 0,
+        .flags = kFlagAlive,
+    });
+    CHECK(c2.send_local_state(PlayerState{
+        .sequence = 0,
+        .client_tick = host2.current_tick(),
+        .position = Vec3{-10.0f, 0.0f, 60.0f},
+        .yaw = 3.14f,
+        .pitch = 0.0f,
+        .velocity = Vec3{0.0f, 0.0f, 0.0f},
+        .anim_state = 0,
+        .weapon = 0,
+        .flags = kFlagAlive,
+    }));
+    host2.tick();
+    c2.poll();
+    CHECK(c2.is_joined() && !c2.is_kicked());
+
+    // Disparo sem claimed_target (kNoPlayer) alinhado do Host para Client2 acerta via raycast no host
+    const uint8_t hp_before = host2.slots()[1].health;
+    CHECK(host2.local_fire(FireEvent{
+        .client_tick = host2.current_tick(),
+        .shooter = 0,
+        .weapon = 0,
+        .origin = Vec3{-10.0f, 0.0f, 50.0f},
+        .direction = Vec3{0.0f, 0.0f, 1.0f},
+        .claimed_target = kNoPlayer,
+    }));
+    CHECK(host2.slots()[1].health < hp_before);
+
+    // Client2 recebe FireEvent do host; HostSession recebe FireEvent de Client2 via recent_fires()
+    c2.poll();
+    CHECK(c2.recent_fires().size() == 1);
+    CHECK(c2.recent_fires()[0].shooter == 0);
+    c2.clear_events();
+    CHECK(c2.recent_fires().empty());
+
+    host2.clear_events();
+    CHECK(c2.send_fire(FireEvent{
+        .client_tick = host2.current_tick(),
+        .shooter = 1,
+        .weapon = 0,
+        .origin = Vec3{-10.0f, 0.0f, 60.0f},
+        .direction = Vec3{0.0f, 0.0f, -1.0f},
+        .claimed_target = 0,
+    }));
+    host2.tick();
+    CHECK(host2.recent_fires().size() == 1);
+    CHECK(host2.recent_fires()[0].shooter == 1);
+    host2.clear_events();
+    CHECK(host2.recent_fires().empty());
+}
+
+void test_cs_loadout_economy_and_limits() {
+    auto rules = RulesConfig::cs_loadout_deathmatch();
+    rules.respawn_delay_ticks = 6;
+    rules.buy_window_ticks = 12;
+
+    LoopbackEndpoint host_ep;
+    LoopbackEndpoint c1_ep;
+    auto [h_to_c1, c1_to_h] = LoopbackEndpoint::link(host_ep, c1_ep);
+    (void)h_to_c1;
+
+    HostSession host(host_ep, rules, "HostCS");
+    ClientSession c1(c1_ep, c1_to_h, rules, "ClientCS");
+
+    CHECK(c1.send_hello());
+    host.tick();
+    c1.poll();
+    CHECK(c1.is_joined());
+
+    host.start_match();
+    host.tick();
+    c1.poll();
+    CHECK(c1.phase() == MatchPhase::Running);
+    CHECK(c1.local_loadout().credits == rules.starting_credits);
+    CHECK(c1.local_loadout().primary_weapon == kNoWeapon);
+    CHECK(c1.local_loadout().secondary_weapon == 0);
+
+    // 1. Tentativa de comprar AK-47 ($2700) com apenas $1500 deve falhar
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = 7, .secondary_weapon = 0, .tactical_flags = 0}));
+    host.tick();
+    c1.poll();
+    CHECK(c1.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::InsufficientCredits));
+    CHECK(c1.local_loadout().primary_weapon == kNoWeapon);
+    CHECK(c1.local_loadout().credits == 1500);
+
+    // 2. Compra válida: MP5 ($1250) -> sobram $250 e arma primária vira MP5 (id 3)
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = 3, .secondary_weapon = 0, .tactical_flags = 0}));
+    host.tick();
+    c1.poll();
+    CHECK(c1.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::Ok));
+    CHECK(c1.local_loadout().primary_weapon == 3);
+    CHECK(c1.local_loadout().credits == 250);
+
+    // 3. Item inválido (pistola no slot primário) é rejeitado com InvalidItem
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = 1, .secondary_weapon = 0, .tactical_flags = 0}));
+    host.tick();
+    c1.poll();
+    CHECK(c1.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::InvalidItem));
+
+    // 4. Com enforce_loadout=true, disparar arma não comprada (AK-47 id 7) falha
+    const Vec3 c1_pos = host.slots()[1].position;
+    const Vec3 host_pos = host.slots()[0].position;
+    CHECK(c1.send_fire(FireEvent{
+        .client_tick = host.current_tick(),
+        .shooter = 1,
+        .weapon = 7,
+        .origin = c1_pos,
+        .direction = Vec3{1.0f, 0.0f, 0.0f},
+        .claimed_target = kNoPlayer,
+    }));
+    host.tick();
+    CHECK(host.slots()[1].violations >= 1);
+
+    // 5. Compra válida pelo host: MAC-10 ($1050) + Glock ($0) = $1050 -> restam $450
+    CHECK(host.local_buy_loadout(LoadoutRequest{.primary_weapon = 4, .secondary_weapon = 0, .tactical_flags = 0}));
+    CHECK(host.slot_loadout_state(0).credits == 450);
+    CHECK(host.slot_loadout_state(0).primary_weapon == 4);
+
+    // 6. Fechar janela de compra após 12 ticks bloqueia compras novas até morrer/respawnar
+    for (int i = 0; i < 15; ++i) {
+        host.tick();
+    }
+    c1.poll();
+    CHECK(!host.local_buy_loadout(LoadoutRequest{.primary_weapon = 4, .secondary_weapon = 0, .tactical_flags = kLoadoutTactical}));
+    CHECK(host.slot_loadout_state(0).last_result == static_cast<uint8_t>(LoadoutResult::BuyWindowClosed));
+
+    // 7. Disparo válido da MAC-10 do host abatendo Client1 concede +$450 ao host e +$600 bônus de morte ao Client1
+    CHECK(host.local_fire(FireEvent{
+        .client_tick = host.current_tick(),
+        .shooter = 0,
+        .weapon = 4,
+        .origin = host_pos,
+        .direction = Vec3{1.0f, 0.0f, 0.0f},
+        .claimed_target = 1,
+    }));
+    // Dano suficiente para abater Client1 diretamente pelo servidor
+    CHECK(host.apply_damage(0, 1, 120, 4));
+    CHECK((host.slots()[1].flags & kFlagAlive) == 0);
+    CHECK(host.slot_loadout_state(0).credits == 450 + rules.kill_reward_credits);
+
+    // Comprando enquanto morto deve falhar com NotAliveOrEnded
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = 3, .secondary_weapon = 0, .tactical_flags = 0}));
+    host.tick();
+    c1.poll();
+    CHECK(c1.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::NotAliveOrEnded));
+    CHECK(c1.local_loadout().credits == 250 + rules.death_bonus_credits);
+    CHECK(c1.local_loadout().primary_weapon == kNoWeapon);
+
+    // Avança ticks até Client1 respawnar (nova janela de compra + colete dá +25 HP)
+    for (int i = 0; i < 8; ++i) {
+        host.tick();
+    }
+    c1.poll();
+    CHECK((host.slots()[1].flags & kFlagAlive) != 0);
+    // Client1 tem $850: compra Colete ($650) -> sobra $200 e HP passa para 125
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = kNoWeapon, .secondary_weapon = 0, .tactical_flags = kLoadoutArmor}));
+    host.tick();
+    c1.poll();
+    CHECK(c1.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::Ok));
+    CHECK(c1.local_loadout().credits == 200);
+    CHECK(host.slots()[1].health == 125);
+
+    // 8. Modo Orçamento Fixo (fixed_budget_mode = true, teto $3000)
+    RulesConfig fixed_rules = RulesConfig::cs_loadout_deathmatch();
+    fixed_rules.fixed_budget_mode = true;
+    fixed_rules.max_credits = 3000;
+    fixed_rules.buy_window_ticks = 0;  // sempre aberto
+
+    // Hash precisa diferir das regras dinâmicas
+    CHECK(fixed_rules.compute_hash() != rules.compute_hash());
+
+    LoopbackEndpoint f_host_ep;
+    LoopbackEndpoint f_c1_ep;
+    auto [fh1, fc1] = LoopbackEndpoint::link(f_host_ep, f_c1_ep);
+    (void)fh1;
+    HostSession fhost(f_host_ep, fixed_rules, "FixedHost");
+    ClientSession fclient(f_c1_ep, fc1, fixed_rules, "FixedClient");
+    CHECK(fclient.send_hello());
+    fhost.tick();
+    fclient.poll();
+    fhost.start_match();
+    fhost.tick();
+    fclient.poll();
+
+    // Kit AK-47 ($2700) + Magnum ($700) = $3400 > $3000 -> ExceedsBudgetCap
+    CHECK(fclient.send_loadout_request(LoadoutRequest{.primary_weapon = 7, .secondary_weapon = 2, .tactical_flags = 0}));
+    fhost.tick();
+    fclient.poll();
+    CHECK(fclient.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::ExceedsBudgetCap));
+
+    // Kit AK-47 ($2700) + Glock ($0) + Tático ($300) = $3000 <= $3000 -> Ok
+    CHECK(fclient.send_loadout_request(LoadoutRequest{.primary_weapon = 7, .secondary_weapon = 0, .tactical_flags = kLoadoutTactical}));
+    fhost.tick();
+    fclient.poll();
+    CHECK(fclient.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::Ok));
+    CHECK(fclient.local_loadout().kit_cost == 3000);
+
+    // Troca de kit completa no modo orçamento fixo continua funcionando dentro de $3000
+    CHECK(fclient.send_loadout_request(LoadoutRequest{.primary_weapon = 6, .secondary_weapon = 0, .tactical_flags = kLoadoutArmor | kLoadoutTactical}));
+    fhost.tick();
+    fclient.poll();
+    CHECK(fclient.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::Ok));
+    CHECK(fclient.local_loadout().primary_weapon == 6);
+    CHECK(fclient.local_loadout().kit_cost == 1800 + 650 + 300);
+}
+
 }  // namespace
 
 int main() {
@@ -344,6 +681,8 @@ int main() {
     test_hostile_and_malformed_inputs();
     test_four_player_deathmatch_simulation();
     test_rate_limit_and_malformed_kick();
+    test_host_apply_damage_and_kill_attribution();
+    test_cs_loadout_economy_and_limits();
     std::printf("[netcore_tests] All protocol, fuzzing, session and security tests PASSED.\n");
     return 0;
 }

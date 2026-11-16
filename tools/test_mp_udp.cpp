@@ -351,6 +351,17 @@ void TestSyntheticBridgeControllerAndCli() {
 
 }  // namespace
 
+namespace mem {
+bool IsCommitted(uint32_t va) {
+    return va >= 0x00010000u && va < 0x00400000u;
+}
+uint32_t AllocSystem(uint32_t size, uint32_t align) {
+    (void)size;
+    (void)align;
+    return 0x00380000u;
+}
+}  // namespace mem
+
 int main() {
     TestUdpReliableOrderingUnderLoss();
     TestUdpHandshakeCombatAndCleanup();

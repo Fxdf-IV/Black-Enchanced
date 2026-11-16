@@ -7,7 +7,7 @@
 namespace netcore {
 
 // Versão do protocolo de rede. Cliente e host recusam a conexão quando divergem.
-inline constexpr uint16_t kProtocolVersion = 1;
+inline constexpr uint16_t kProtocolVersion = 2;
 
 // Marca no início de todo pacote, para descartar lixo cedo.
 inline constexpr uint16_t kPacketMagic = 0xB1AC;
@@ -27,7 +27,8 @@ inline constexpr float kWorldLimit = 100000.0f;
 inline constexpr float kVelocityLimit = 1000.0f;
 inline constexpr float kAngleLimit = 7.0f;  // radianos; folga para ângulos não normalizados
 
-// "Nenhum jogador": alvo de um disparo que errou, vencedor de um empate etc.
+// "Nenhum jogador" / "Nenhuma arma".
 inline constexpr uint8_t kNoPlayer = 0xFF;
+inline constexpr uint8_t kNoWeapon = 0xFF;
 
 }  // namespace netcore

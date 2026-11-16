@@ -11,6 +11,12 @@
 
 namespace netcore {
 
+enum class WeaponSlot : uint8_t {
+    Secondary = 0,
+    Primary = 1,
+    Tactical = 2,
+};
+
 struct WeaponSpec {
     uint8_t id = 0;
     const char* name = "";
@@ -18,6 +24,8 @@ struct WeaponSpec {
     uint16_t min_fire_interval_ticks = 3;  // a 30 Hz: 3 ticks = 100 ms (600 RPM)
     uint16_t magazine_size = 30;
     float max_range = 250.0f;
+    WeaponSlot slot = WeaponSlot::Primary;
+    uint16_t price = 0;
 };
 
 struct SpawnPoint {
@@ -36,6 +44,18 @@ struct RulesConfig {
     float max_speed_units_per_sec = 18.0f;
     uint8_t arena_id = 0;
 
+    // Economia e Loadout estilo CS (teto e compra validados pelo host)
+    bool fixed_budget_mode = false;
+    bool enforce_loadout = false;
+    uint16_t starting_credits = 1500;
+    uint16_t max_credits = 8000;
+    uint16_t kill_reward_credits = 450;
+    uint16_t death_bonus_credits = 600;
+    uint16_t armor_price = 650;
+    uint8_t armor_bonus_health = 25;
+    uint16_t tactical_price = 300;
+    uint16_t buy_window_ticks = 450;  // 15 s a 30 Hz após spawn (0 = sempre aberto)
+
     // Limites de segurança contra abuso de mensagens por cliente (seção 9 do plano)
     uint16_t max_packets_per_window = 120;  // janela de 30 ticks (1 segundo)
     uint8_t max_violations_before_kick = 5;
@@ -45,6 +65,9 @@ struct RulesConfig {
 
     // Configuração padrão do MVP 0.1 com as armas clássicas de BLACK.
     static RulesConfig default_deathmatch();
+
+    // Variante com economia e posse de loadout estritamente impostas no host.
+    static RulesConfig cs_loadout_deathmatch();
 
     // Hash determinístico FNV-1a (32 bits) dos parâmetros que afetam a simulação.
     uint32_t compute_hash() const;

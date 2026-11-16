@@ -178,7 +178,8 @@ def _inspect_xbe(path: Path) -> tuple[bool, int, str]:
         hdr = fp.read(0x200)
     if len(hdr) < 0x180 or hdr[:4] != b"XBEH":
         return False, 0, "Cabeçalho XBEH ausente"
-    base_addr, _, _, _, cert_addr = struct.unpack_from("<IIIII", hdr, 0x104)
+    base_addr = struct.unpack_from("<I", hdr, 0x104)[0]
+    cert_addr = struct.unpack_from("<I", hdr, 0x118)[0]
     cert_off = cert_addr - base_addr
     title_id = 0
     if 0 <= cert_off and cert_off + 0x0C <= len(hdr):

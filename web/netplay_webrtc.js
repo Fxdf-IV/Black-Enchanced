@@ -1,9 +1,9 @@
 // Black Enhanced Online — Transporte WebRTC DataChannel + Codec Binário compatível byte-a-byte com libs/netcore
-// Magic: 0xB1AC (little-endian: 0xAC, 0xB1), Protocol Version: 1
+// Magic: 0xB1AC (little-endian: 0xAC, 0xB1), Protocol Version: 2
 
 export const PACKET_MAGIC = 0xb1ac;
-export const PROTOCOL_VERSION = 1;
-export const DEFAULT_RULES_HASH = 0x424c4b31;
+export const PROTOCOL_VERSION = 2;
+export const DEFAULT_RULES_HASH = 0x424c4b32;
 
 export const MsgType = Object.freeze({
   Hello: 1,
@@ -21,6 +21,8 @@ export const MsgType = Object.freeze({
   Pong: 13,
   Leave: 14,
   Kick: 15,
+  LoadoutRequest: 16,
+  LoadoutState: 17,
 });
 
 export function encodeHello(name, rulesHash = DEFAULT_RULES_HASH) {
@@ -144,6 +146,34 @@ export function encodePong(nonce, echoMs, hostTick) {
   return new Uint8Array(buf);
 }
 
+export function encodeLoadoutRequest(primaryWeapon, secondaryWeapon, tacticalFlags) {
+  const buf = new ArrayBuffer(3 + 3);
+  const v = new DataView(buf);
+  v.setUint16(0, PACKET_MAGIC, true);
+  v.setUint8(2, MsgType.LoadoutRequest);
+  v.setUint8(3, primaryWeapon & 0xff);
+  v.setUint8(4, secondaryWeapon & 0xff);
+  v.setUint8(5, tacticalFlags & 0xff);
+  return new Uint8Array(buf);
+}
+
+export function encodeLoadoutState(st) {
+  const buf = new ArrayBuffer(3 + 13);
+  const v = new DataView(buf);
+  v.setUint16(0, PACKET_MAGIC, true);
+  v.setUint8(2, MsgType.LoadoutState);
+  v.setUint8(3, st.playerId & 0xff);
+  v.setUint8(4, st.primaryWeapon & 0xff);
+  v.setUint8(5, st.secondaryWeapon & 0xff);
+  v.setUint8(6, st.tacticalFlags & 0xff);
+  v.setUint8(7, st.lastResult & 0xff);
+  v.setUint16(8, st.credits & 0xffff, true);
+  v.setUint16(10, st.maxCredits & 0xffff, true);
+  v.setUint16(12, st.kitCost & 0xffff, true);
+  v.setUint16(14, st.buyTicksLeft & 0xffff, true);
+  return new Uint8Array(buf);
+}
+
 export function decodePacket(uint8) {
   if (!uint8 || uint8.byteLength < 3 || uint8.byteLength > 1200) {
     return null;
@@ -243,15 +273,55 @@ export function decodePacket(uint8) {
       hostTick: v.getUint32(11, true),
     };
   }
+  if (type === MsgType.LoadoutRequest && uint8.byteLength === 6) {
+    return {
+      type,
+      primaryWeapon: v.getUint8(3),
+      secondaryWeapon: v.getUint8(4),
+      tacticalFlags: v.getUint8(5),
+    };
+  }
+  if (type === MsgType.LoadoutState && uint8.byteLength === 16) {
+    return {
+      type,
+      playerId: v.getUint8(3),
+      primaryWeapon: v.getUint8(4),
+      secondaryWeapon: v.getUint8(5),
+      tacticalFlags: v.getUint8(6),
+      lastResult: v.getUint8(7),
+      credits: v.getUint16(8, true),
+      maxCredits: v.getUint16(10, true),
+      kitCost: v.getUint16(12, true),
+      buyTicksLeft: v.getUint16(14, true),
+    };
+  }
   return { type };
 }
 
-// Transporte WebRTC DataChannels (reliable + unreliable) com sinalização via WebSocket (Cloudflare Worker)
-// ou BroadcastChannel local (para testar múltiplas abas sem servidor externo).
+function toHex(uint8) {
+  let out = "";
+  for (let i = 0; i < uint8.length; i++) {
+    out += uint8[i].toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
+function fromHex(hex) {
+  const len = Math.floor(hex.length / 2);
+  const out = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16) || 0;
+  }
+  return out;
+}
+
+// Transporte WebRTC DataChannels (reliable + unreliable) com sinalização via WebSocket (Cloudflare Worker),
+// fallback automático para WebSocket relay quando NAT impedir P2P, ou BroadcastChannel local entre abas.
 export class WebRtcTransport {
-  constructor({ roomCode, signalingUrl, onEvent, onLog }) {
+  constructor({ roomCode, signalingUrl, roomMeta, onEvent, onLog }) {
     this.roomCode = roomCode.toUpperCase();
     this.signalingUrl = signalingUrl || "";
+    this.roomMeta = roomMeta || null;
     this.onEvent = onEvent || (() => {});
     this.onLog = onLog || (() => {});
     this.localSignalingId = Math.floor(100000 + Math.random() * 899999);
@@ -276,7 +346,8 @@ export class WebRtcTransport {
     if (this.role === "host") {
       this.hostPeerId = this.localSignalingId;
       this.onLog(`Sala ${this.roomCode} aberta como HOST (ID ${this.localSignalingId}).`);
-      this.onEvent({ type: "role", role: "host", peerId: this.localSignalingId });
+      this.onEvent({ type: "role", role: "host", peerId: this.localSignalingId, meta: this.roomMeta });
+      this.bc.postMessage({ type: "host_ready", from: this.localSignalingId, meta: this.roomMeta });
     } else {
       this.onLog(`Procurando host na sala ${this.roomCode}...`);
       this.bc.postMessage({ type: "join_request", from: this.localSignalingId });
@@ -287,8 +358,17 @@ export class WebRtcTransport {
       if (!msg || msg.from === this.localSignalingId) return;
 
       if (msg.type === "join_request" && this.role === "host") {
-        if (this.peers.size >= 3) return;
+        if (this.peers.size >= 3 || this.peers.has(msg.from)) return;
+        this.bc.postMessage({ type: "host_ready", from: this.localSignalingId, meta: this.roomMeta });
         await this.initiatePeerConnection(msg.from, true);
+      } else if (msg.type === "host_ready" && this.role === "client") {
+        this.hostPeerId = msg.from;
+        if (msg.meta) {
+          this.onEvent({ type: "room_meta", hostPeerId: msg.from, meta: msg.meta });
+        }
+        if (!this.peers.has(msg.from)) {
+          this.bc.postMessage({ type: "join_request", from: this.localSignalingId });
+        }
       } else if (msg.to === this.localSignalingId) {
         await this.handleSignalingMessage(msg.from, msg);
       }
@@ -296,7 +376,8 @@ export class WebRtcTransport {
   }
 
   startWebSocketSignaling() {
-    const wsUrl = `${this.signalingUrl.replace(/\/$/, "")}/room/${this.roomCode}/ws`;
+    const base = this.signalingUrl.replace(/\/$/, "").replace(/^http/i, "ws");
+    const wsUrl = `${base}/room/${this.roomCode}/ws`;
     this.ws = new WebSocket(wsUrl);
     this.ws.onmessage = async (ev) => {
       const msg = JSON.parse(ev.data);
@@ -306,12 +387,86 @@ export class WebRtcTransport {
         this.hostPeerId = msg.host_peer_id;
         this.onLog(`Conectado à sala ${this.roomCode} como ${this.role.toUpperCase()} (#${this.localSignalingId}).`);
         this.onEvent({ type: "role", role: this.role, peerId: this.localSignalingId });
+        if (this.role === "client" && this.hostPeerId) {
+          this.clientFallbackTimer = setTimeout(() => {
+            if (!this.peers.has(this.hostPeerId)) {
+              const stub = {
+                pc: null,
+                reliable: null,
+                unreliable: null,
+                relayFallback: false,
+                connectedEmitted: false,
+                fallbackTimer: 0,
+              };
+              this.peers.set(this.hostPeerId, stub);
+              this.enableRelayFallback(this.hostPeerId, stub, "timeout de sinalização");
+            }
+          }, 4500);
+        }
       } else if (msg.type === "peer_joined" && this.role === "host") {
         await this.initiatePeerConnection(msg.peer_id, true);
       } else if (msg.type === "sdp" || msg.type === "ice") {
         await this.handleSignalingMessage(msg.from, msg);
+      } else if (msg.type === "relay" && typeof msg.hex === "string") {
+        this.handleRelayPacket(msg.from, msg.channel, msg.hex);
+      } else if (msg.type === "peer_left" && msg.peer_id) {
+        this.handleRemoteDisconnect(msg.peer_id);
+      } else if (msg.type === "host_left") {
+        this.onLog("O host encerrou a sala.");
+        if (this.hostPeerId) this.handleRemoteDisconnect(this.hostPeerId);
       }
     };
+  }
+
+  enableRelayFallback(remoteId, entry, reason) {
+    if (!entry || entry.relayFallback || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    entry.relayFallback = true;
+    this.onLog(`WebRTC direto indisponível (${reason}) com par #${remoteId}; usando fallback WebSocket relay.`);
+    if (!entry.connectedEmitted) {
+      entry.connectedEmitted = true;
+      this.onEvent({ type: "connected", peer: remoteId });
+    }
+  }
+
+  handleRelayPacket(fromId, channel, hex) {
+    let entry = this.peers.get(fromId);
+    if (!entry) {
+      entry = {
+        pc: null,
+        reliable: null,
+        unreliable: null,
+        relayFallback: true,
+        connectedEmitted: false,
+        fallbackTimer: 0,
+      };
+      this.peers.set(fromId, entry);
+    } else if (!entry.relayFallback) {
+      entry.relayFallback = true;
+    }
+    if (!entry.connectedEmitted) {
+      entry.connectedEmitted = true;
+      this.onLog(`Fallback WebSocket relay ativo com par #${fromId}.`);
+      this.onEvent({ type: "connected", peer: fromId });
+    }
+    this.onEvent({
+      type: "packet",
+      peer: fromId,
+      channel: channel === "unreliable" ? "unreliable" : "reliable",
+      payload: fromHex(hex),
+    });
+  }
+
+  handleRemoteDisconnect(remoteId) {
+    const entry = this.peers.get(remoteId);
+    if (!entry) return;
+    if (entry.fallbackTimer) clearTimeout(entry.fallbackTimer);
+    try {
+      entry.pc?.close();
+    } catch {}
+    this.peers.delete(remoteId);
+    if (entry.connectedEmitted) {
+      this.onEvent({ type: "disconnected", peer: remoteId });
+    }
   }
 
   sendSignaling(to, type, payload) {
@@ -327,8 +482,31 @@ export class WebRtcTransport {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
-    const entry = { pc, reliable: null, unreliable: null };
+    const prev = this.peers.get(remoteId);
+    const entry = {
+      pc,
+      reliable: null,
+      unreliable: null,
+      relayFallback: Boolean(prev?.relayFallback),
+      connectedEmitted: Boolean(prev?.connectedEmitted),
+      fallbackTimer: prev?.fallbackTimer || 0,
+    };
     this.peers.set(remoteId, entry);
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      entry.fallbackTimer = setTimeout(() => {
+        const bothOpen = entry.reliable?.readyState === "open" && entry.unreliable?.readyState === "open";
+        if (!bothOpen) {
+          this.enableRelayFallback(remoteId, entry, "timeout ICE/NAT");
+        }
+      }, 4000);
+    }
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === "failed") {
+        this.enableRelayFallback(remoteId, entry, "ICE failed");
+      }
+    };
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
@@ -340,12 +518,27 @@ export class WebRtcTransport {
       dc.binaryType = "arraybuffer";
       dc.onopen = () => {
         if (entry.reliable?.readyState === "open" && entry.unreliable?.readyState === "open") {
-          this.onLog(`WebRTC DataChannels (reliable + unreliable) abertos com par #${remoteId}.`);
-          this.onEvent({ type: "connected", peer: remoteId });
+          if (entry.fallbackTimer) {
+            clearTimeout(entry.fallbackTimer);
+            entry.fallbackTimer = 0;
+          }
+          if (entry.relayFallback) {
+            entry.relayFallback = false;
+            this.onLog(`WebRTC DataChannels P2P abertos com par #${remoteId} (promovido do relay).`);
+          } else {
+            this.onLog(`WebRTC DataChannels (reliable + unreliable) abertos com par #${remoteId}.`);
+          }
+          if (!entry.connectedEmitted) {
+            entry.connectedEmitted = true;
+            this.onEvent({ type: "connected", peer: remoteId });
+          }
         }
       };
       dc.onclose = () => {
-        this.onEvent({ type: "disconnected", peer: remoteId });
+        if (!entry.relayFallback && entry.connectedEmitted) {
+          entry.connectedEmitted = false;
+          this.onEvent({ type: "disconnected", peer: remoteId });
+        }
       };
       dc.onmessage = (ev) => {
         this.onEvent({
@@ -365,7 +558,10 @@ export class WebRtcTransport {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      this.sendSignaling(remoteId, "sdp", pc.localDescription);
+      const desc = pc.localDescription?.toJSON
+        ? pc.localDescription.toJSON()
+        : { type: pc.localDescription.type, sdp: pc.localDescription.sdp };
+      this.sendSignaling(remoteId, "sdp", desc);
     } else {
       pc.ondatachannel = (ev) => {
         const dc = ev.channel;
@@ -384,7 +580,7 @@ export class WebRtcTransport {
 
   async handleSignalingMessage(fromId, msg) {
     let entry = this.peers.get(fromId);
-    if (!entry) {
+    if (!entry || !entry.pc) {
       entry = await this.initiatePeerConnection(fromId, false);
     }
     if (msg.type === "sdp") {
@@ -392,7 +588,10 @@ export class WebRtcTransport {
       if (msg.payload.type === "offer") {
         const answer = await entry.pc.createAnswer();
         await entry.pc.setLocalDescription(answer);
-        this.sendSignaling(fromId, "sdp", entry.pc.localDescription);
+        const desc = entry.pc.localDescription?.toJSON
+          ? entry.pc.localDescription.toJSON()
+          : { type: entry.pc.localDescription.type, sdp: entry.pc.localDescription.sdp };
+        this.sendSignaling(fromId, "sdp", desc);
       }
     } else if (msg.type === "ice" && msg.payload) {
       try {
@@ -404,10 +603,24 @@ export class WebRtcTransport {
   send(peerId, channel, uint8) {
     const entry = this.peers.get(peerId);
     if (!entry) return false;
-    const dc = channel === "unreliable" ? entry.unreliable : entry.reliable;
-    if (!dc || dc.readyState !== "open") return false;
-    dc.send(uint8);
-    return true;
+    const chName = channel === "unreliable" ? "unreliable" : "reliable";
+    const dc = chName === "unreliable" ? entry.unreliable : entry.reliable;
+    if (dc && dc.readyState === "open") {
+      dc.send(uint8);
+      return true;
+    }
+    if (entry.relayFallback && this.ws && this.ws.readyState === WebSocket.OPEN && uint8.byteLength <= 1200) {
+      this.ws.send(
+        JSON.stringify({
+          to: peerId,
+          type: "relay",
+          channel: chName,
+          hex: toHex(uint8),
+        })
+      );
+      return true;
+    }
+    return false;
   }
 
   broadcast(channel, uint8) {
@@ -417,9 +630,11 @@ export class WebRtcTransport {
   }
 
   close() {
+    if (this.clientFallbackTimer) clearTimeout(this.clientFallbackTimer);
     for (const [, entry] of this.peers) {
+      if (entry.fallbackTimer) clearTimeout(entry.fallbackTimer);
       try {
-        entry.pc.close();
+        entry.pc?.close();
       } catch {}
     }
     this.peers.clear();

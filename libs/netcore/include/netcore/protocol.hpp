@@ -33,6 +33,8 @@ enum class MessageType : uint8_t {
     Pong = 13,
     Leave = 14,
     Kick = 15,
+    LoadoutRequest = 16,
+    LoadoutState = 17,
 };
 
 // Os dois canais que todo transporte precisa oferecer (ENet: canais; WebRTC: dois data channels).
@@ -205,8 +207,44 @@ struct Kick {
     friend bool operator==(const Kick&, const Kick&) = default;
 };
 
+// Bits de compra tática no sistema de Loadout estilo CS.
+enum LoadoutBuyFlags : uint8_t {
+    kLoadoutArmor = 1 << 0,     // Colete balístico (+armor_bonus_health ao spawnar)
+    kLoadoutTactical = 1 << 1,  // Pacote tático / granada / silenciador
+};
+
+enum class LoadoutResult : uint8_t {
+    Ok = 0,
+    InsufficientCredits = 1,
+    ExceedsBudgetCap = 2,
+    InvalidItem = 3,
+    BuyWindowClosed = 4,
+    NotAliveOrEnded = 5,
+};
+
+struct LoadoutRequest {
+    uint8_t primary_weapon = kNoWeapon;
+    uint8_t secondary_weapon = 0;
+    uint8_t tactical_flags = 0;
+    friend bool operator==(const LoadoutRequest&, const LoadoutRequest&) = default;
+};
+
+struct LoadoutState {
+    uint8_t player_id = 0;
+    uint8_t primary_weapon = kNoWeapon;
+    uint8_t secondary_weapon = 0;
+    uint8_t tactical_flags = 0;
+    uint8_t last_result = 0;
+    uint16_t credits = 0;
+    uint16_t max_credits = 0;
+    uint16_t kit_cost = 0;
+    uint16_t buy_ticks_left = 0;
+    friend bool operator==(const LoadoutState&, const LoadoutState&) = default;
+};
+
 using Message = std::variant<Hello, Welcome, Reject, MatchStart, MatchEnd, PlayerState, WorldSnapshot, FireEvent,
-                             DamageEvent, DeathEvent, RespawnEvent, Ping, Pong, Leave, Kick>;
+                             DamageEvent, DeathEvent, RespawnEvent, Ping, Pong, Leave, Kick, LoadoutRequest,
+                             LoadoutState>;
 
 MessageType type_of(const Message& m);
 

@@ -31,6 +31,8 @@ NETCORE_TRAIT(Ping);
 NETCORE_TRAIT(Pong);
 NETCORE_TRAIT(Leave);
 NETCORE_TRAIT(Kick);
+NETCORE_TRAIT(LoadoutRequest);
+NETCORE_TRAIT(LoadoutState);
 #undef NETCORE_TRAIT
 
 // ---- validação -----------------------------------------------------------------------------
@@ -57,6 +59,8 @@ bool valid_angle(float a) { return finite(a) && std::fabs(a) <= kAngleLimit; }
 bool valid_player(uint8_t id) { return id < kMaxPlayers; }
 bool valid_player_or_none(uint8_t id) { return id < kMaxPlayers || id == kNoPlayer; }
 bool valid_weapon(uint8_t w) { return w < kMaxWeapons; }
+bool valid_weapon_or_none(uint8_t w) { return w < kMaxWeapons || w == kNoWeapon; }
+bool valid_tactical_flags(uint8_t f) { return (f & ~(kLoadoutArmor | kLoadoutTactical)) == 0; }
 
 bool valid_name(const std::string& s) {
     if (s.empty() || s.size() > kMaxNameLength) return false;
@@ -108,6 +112,15 @@ bool valid(const Ping&) { return true; }
 bool valid(const Pong&) { return true; }
 bool valid(const Leave&) { return true; }
 bool valid(const Kick& m) { return m.reason >= KickReason::HostLeft && m.reason <= KickReason::HandshakeTimeout; }
+bool valid(const LoadoutRequest& m) {
+    return valid_weapon_or_none(m.primary_weapon) && valid_weapon_or_none(m.secondary_weapon) &&
+           valid_tactical_flags(m.tactical_flags);
+}
+bool valid(const LoadoutState& m) {
+    return valid_player(m.player_id) && valid_weapon_or_none(m.primary_weapon) &&
+           valid_weapon_or_none(m.secondary_weapon) && valid_tactical_flags(m.tactical_flags) &&
+           m.last_result <= static_cast<uint8_t>(LoadoutResult::NotAliveOrEnded);
+}
 
 // ---- escrita -------------------------------------------------------------------------------
 
@@ -204,6 +217,22 @@ void write(ByteWriter& w, const Pong& m) {
 }
 void write(ByteWriter& w, const Leave& m) { w.u8(m.reason); }
 void write(ByteWriter& w, const Kick& m) { w.u8(static_cast<uint8_t>(m.reason)); }
+void write(ByteWriter& w, const LoadoutRequest& m) {
+    w.u8(m.primary_weapon);
+    w.u8(m.secondary_weapon);
+    w.u8(m.tactical_flags);
+}
+void write(ByteWriter& w, const LoadoutState& m) {
+    w.u8(m.player_id);
+    w.u8(m.primary_weapon);
+    w.u8(m.secondary_weapon);
+    w.u8(m.tactical_flags);
+    w.u8(m.last_result);
+    w.u16(m.credits);
+    w.u16(m.max_credits);
+    w.u16(m.kit_cost);
+    w.u16(m.buy_ticks_left);
+}
 
 // ---- leitura -------------------------------------------------------------------------------
 // Cada read() devolve false para conteúdo estruturalmente impossível (contagem acima do teto etc.).
@@ -332,6 +361,24 @@ bool read(ByteReader& r, Kick& m) {
     m.reason = static_cast<KickReason>(r.u8());
     return true;
 }
+bool read(ByteReader& r, LoadoutRequest& m) {
+    m.primary_weapon = r.u8();
+    m.secondary_weapon = r.u8();
+    m.tactical_flags = r.u8();
+    return true;
+}
+bool read(ByteReader& r, LoadoutState& m) {
+    m.player_id = r.u8();
+    m.primary_weapon = r.u8();
+    m.secondary_weapon = r.u8();
+    m.tactical_flags = r.u8();
+    m.last_result = r.u8();
+    m.credits = r.u16();
+    m.max_credits = r.u16();
+    m.kit_cost = r.u16();
+    m.buy_ticks_left = r.u16();
+    return true;
+}
 
 template <class T>
 DecodeResult finish(ByteReader& r) {
@@ -403,6 +450,8 @@ DecodeResult decode(std::span<const uint8_t> in) {
         case MessageType::Pong: return finish<Pong>(r);
         case MessageType::Leave: return finish<Leave>(r);
         case MessageType::Kick: return finish<Kick>(r);
+        case MessageType::LoadoutRequest: return finish<LoadoutRequest>(r);
+        case MessageType::LoadoutState: return finish<LoadoutState>(r);
     }
     return {std::nullopt, DecodeError::UnknownType};
 }

@@ -1,4 +1,5 @@
 #include "app/app.h"
+#include "common/pc_input.h"
 #include "kernel/kernel.h"
 #include "mp/mp_bridge.h"
 
@@ -31,7 +32,7 @@ const app::GameInfo app::kGame = {
     .window = nullptr,
     .message = nullptr,
     .ui = nullptr,
-    .pad = nullptr,
+    .pad = &common::PollPcPad,
     .rumble = nullptr,
     .releases = {},
 };
