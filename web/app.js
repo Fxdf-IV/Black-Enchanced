@@ -1729,14 +1729,21 @@ async function handlePickedLocalFiles(fileList) {
 
 function applyRoomFromUrl() {
   try {
-    const param = new URLSearchParams(window.location.search).get("room");
+    const qs = new URLSearchParams(window.location.search);
+    const asHost = qs.has("host");
+    const param = qs.get("room") || qs.get("host");
     if (!param) return;
     const clean = param.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
     if (!clean) return;
     state.roomCode = clean;
     syncRoomFieldsToUi();
     switchLauncherTab("mp");
-    showToast(`Convite detectado para sala ${clean}. Clique em "Entrar na Sala"!`, 3800);
+    showToast(
+      asHost
+        ? `Sala ${clean} preenchida. Clique em "Criar Sala (Host)"!`
+        : `Convite detectado para sala ${clean}. Clique em "Entrar na Sala"!`,
+      3800,
+    );
   } catch {}
 }
 
