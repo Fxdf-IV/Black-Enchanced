@@ -1554,7 +1554,7 @@ async function initAssetPipeline() {
 
 async function initAudioWorklet() {
   if (engine.audioNode && engine.audioCtx) {
-    if (engine.audioCtx.state === "suspended") await engine.audioCtx.resume();
+    if (engine.audioCtx.state === "suspended") engine.audioCtx.resume().catch(() => {});
     return true;
   }
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -1567,7 +1567,8 @@ async function initAudioWorklet() {
     outputChannelCount: [2],
   });
   node.connect(ctx.destination);
-  if (ctx.state === "suspended") await ctx.resume();
+  // Não aguardar: resume() só resolve após um gesto do usuário na aba e não pode bloquear o boot do motor.
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
   engine.audioCtx = ctx;
   engine.audioNode = node;
   return true;
