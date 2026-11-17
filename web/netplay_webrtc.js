@@ -349,6 +349,19 @@ export class WebRtcTransport {
 
   async start(preferredRole = "auto") {
     this.closed = false;
+    if (!this.signalingUrl) {
+      // Sinalização local do tools/serve_web.py (mesma origem): permite sessões de navegadores/perfis
+      // diferentes ou de outros PCs da rede; sem ela, cai no BroadcastChannel (só abas do mesmo perfil).
+      try {
+        const res = await fetch("/health", { cache: "no-store" });
+        const info = res.ok ? await res.json() : null;
+        if (info && info.service === "black-enhanced-netplay") {
+          this.signalingUrl = window.location.origin;
+          this.onLog("Sinalização local do servidor detectada; salas funcionam entre navegadores/perfis.");
+        }
+      } catch {}
+      if (this.closed) return;
+    }
     if (this.signalingUrl) {
       this.startWebSocketSignaling();
     } else {

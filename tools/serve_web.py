@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import netplay_signaling
 import xiso_extract
 
 REAL_XBE_MIN_BYTES = 1_000_000
@@ -38,6 +39,8 @@ class EnhancedWebHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         clean_path = self.path.split("?", 1)[0]
+        if netplay_signaling.is_signaling_path(clean_path) and netplay_signaling.handle_http(self):
+            return
         if clean_path == "/api/manifest":
             self.handle_manifest()
             return

@@ -1554,7 +1554,7 @@ async function initAssetPipeline() {
 
 async function initAudioWorklet() {
   if (engine.audioNode && engine.audioCtx) {
-    if (engine.audioCtx.state === "suspended") await engine.audioCtx.resume();
+    if (engine.audioCtx.state === "suspended") engine.audioCtx.resume().catch(() => {});
     return true;
   }
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -1567,7 +1567,8 @@ async function initAudioWorklet() {
     outputChannelCount: [2],
   });
   node.connect(ctx.destination);
-  if (ctx.state === "suspended") await ctx.resume();
+  // Não aguardar: resume() só resolve após um gesto do usuário na aba e não pode bloquear o boot do motor.
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
   engine.audioCtx = ctx;
   engine.audioNode = node;
   return true;
@@ -1728,14 +1729,21 @@ async function handlePickedLocalFiles(fileList) {
 
 function applyRoomFromUrl() {
   try {
-    const param = new URLSearchParams(window.location.search).get("room");
+    const qs = new URLSearchParams(window.location.search);
+    const asHost = qs.has("host");
+    const param = qs.get("room") || qs.get("host");
     if (!param) return;
     const clean = param.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
     if (!clean) return;
     state.roomCode = clean;
     syncRoomFieldsToUi();
     switchLauncherTab("mp");
-    showToast(`Convite detectado para sala ${clean}. Clique em "Entrar na Sala"!`, 3800);
+    showToast(
+      asHost
+        ? `Sala ${clean} preenchida. Clique em "Criar Sala (Host)"!`
+        : `Convite detectado para sala ${clean}. Clique em "Entrar na Sala"!`,
+      3800,
+    );
   } catch {}
 }
 
