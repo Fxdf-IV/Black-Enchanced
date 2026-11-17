@@ -566,13 +566,36 @@ export function createBrowserVfsBridge({ onLog } = {}) {
       const end = Math.min(entry.size - 1, start + CHUNK_SIZE - 1);
       const promise = (async () => {
         this.stats.rangeFetches++;
-        const res = await fetch(entry.remoteUrl, {
-          headers: { Range: `bytes=${start}-${end}` },
-        });
-        if (!res.ok && res.status !== 206) {
-          throw new Error(`HTTP ${res.status} lendo ${entry.path} [${start}-${end}]`);
+        // Redes lentas/túneis falham de vez em quando: tenta de novo antes de
+        // devolver erro de leitura (o jogo mostra "disco danificado").
+        let ab = null;
+        let res = null;
+        let lastErr = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 20000);
+            try {
+              res = await fetch(entry.remoteUrl, {
+                headers: { Range: `bytes=${start}-${end}` },
+                signal: ctl.signal,
+              });
+              if (!res.ok && res.status !== 206) {
+                throw new Error(`HTTP ${res.status} lendo ${entry.path} [${start}-${end}]`);
+              }
+              ab = await res.arrayBuffer();
+            } finally {
+              clearTimeout(timer);
+            }
+            break;
+          } catch (err) {
+            lastErr = err;
+            ab = null;
+            this.stats.retries = (this.stats.retries || 0) + 1;
+            await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+          }
         }
-        const ab = await res.arrayBuffer();
+        if (!ab) throw lastErr || new Error(`falha lendo ${entry.path}`);
         let bytes = new Uint8Array(ab);
         if (res.status === 200 && bytes.byteLength > end - start + 1) {
           bytes = bytes.subarray(start, end + 1);

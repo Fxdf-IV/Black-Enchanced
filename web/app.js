@@ -480,9 +480,14 @@ function readIdentityFromInputs(preferOptionsModal = false) {
   const nameId = preferOptionsModal ? "opt-player-name" : "mp-player-name";
   const rawCode = document.getElementById(codeId)?.value || state.roomCode;
   const rawName = document.getElementById(nameId)?.value || state.playerName;
-  state.roomCode = rawCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) || "VEX401";
+  const cleanCode = rawCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  // O servidor de sinalização só aceita salas com exatamente 6 letras/números.
+  const valid = cleanCode.length === 6;
+  state.roomCode = valid ? cleanCode : state.roomCode;
   state.playerName = rawName.trim().slice(0, 16) || "KELLAR";
   syncRoomFieldsToUi();
+  if (!valid) showToast("O código da sala precisa ter exatamente 6 letras ou números (ex.: ABC123).", 4200);
+  return valid;
 }
 
 function buildInviteUrl() {
@@ -492,7 +497,7 @@ function buildInviteUrl() {
 }
 
 async function copyInviteLink(preferOptionsModal = false) {
-  readIdentityFromInputs(preferOptionsModal);
+  if (!readIdentityFromInputs(preferOptionsModal)) return;
   const link = buildInviteUrl();
   try {
     await navigator.clipboard.writeText(link);
@@ -650,7 +655,8 @@ function startSession(preferredRole, fromOptionsModal = false) {
     state.transport.close();
     state.transport = null;
   }
-  readIdentityFromInputs(fromOptionsModal);
+  const codeOk = readIdentityFromInputs(fromOptionsModal);
+  if (!codeOk && preferredRole !== "offline") return;
   const signalingUrl = (document.getElementById("signaling-url-input")?.value || "").trim();
   const roomRules = readRoomConfigFromUi();
 
@@ -1750,7 +1756,11 @@ function applyRoomFromUrl() {
     const param = qs.get("room") || qs.get("host");
     if (!param) return;
     const clean = param.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-    if (!clean) return;
+    if (clean.length !== 6) {
+      switchLauncherTab("mp");
+      showToast(`Código "${param}" inválido: use exatamente 6 letras ou números (ex.: ABC123).`, 5000);
+      return;
+    }
     state.roomCode = clean;
     syncRoomFieldsToUi();
     switchLauncherTab("mp");
