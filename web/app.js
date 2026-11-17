@@ -7,6 +7,7 @@ import {
 } from "./opfs_loader.js";
 import { BlackWebGpuRenderer } from "./webgpu_renderer.js";
 import { WebRtcTransport } from "./netplay_webrtc.js";
+import { createTouchControls } from "./touch_controls.js";
 
 const NO_WEAPON = 0xff;
 const TACTICAL_ARMOR = 1 << 0;
@@ -378,6 +379,14 @@ function updateViewportChrome() {
     !(presenting && !inLvl && engine.activeOverlay === "none")
   );
   document.getElementById("btn-assist-mp-hint")?.classList.toggle("hidden", !mp);
+
+  touchControls?.update({
+    bootStarted: engine.bootStarted,
+    presenting,
+    inLevel: inLvl,
+    overlay: engine.activeOverlay,
+    multiplayer: mp,
+  });
 
   const ptrHint = document.getElementById("ptr-hint");
   if (ptrHint) {
@@ -1009,7 +1018,13 @@ function pollBrowserGamepad() {
   const pads = navigator.getGamepads();
   const pad = pads ? Array.from(pads).find((p) => p && p.connected) : null;
   if (!pad) {
-    mod._BlackWebPushGamepadState(0, 0, 0, 0, 0, 0, 0, 0);
+    const tp = engine.touchPad;
+    if (tp?.active) {
+      // Analógico virtual da tela de toque: entra como gamepad com só o stick esquerdo.
+      mod._BlackWebPushGamepadState(1, 0, 0, 0, tp.lx | 0, tp.ly | 0, 0, 0);
+    } else {
+      mod._BlackWebPushGamepadState(0, 0, 0, 0, 0, 0, 0, 0);
+    }
     return;
   }
   let btns = 0;
@@ -1575,6 +1590,7 @@ async function initAudioWorklet() {
 }
 
 async function startWasmEngine(targetMode) {
+  touchControls?.enterPlayMode();
   if (targetMode === "solo") {
     startSession("offline");
   }
@@ -2227,7 +2243,14 @@ function bindEvents() {
   });
 }
 
+let touchControls = null;
+
 window.addEventListener("DOMContentLoaded", async () => {
+  touchControls = createTouchControls({
+    viewport: document.getElementById("viewport-wrap"),
+    engine,
+    pushMouseButtons: () => engine.module?._BlackWebPushMouseState(engine.mouseButtons, 0, 0),
+  });
   ensureVfsBridge();
   syncEnhancedControlsUi();
   bindEvents();
