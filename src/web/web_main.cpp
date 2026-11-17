@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/cutscene_skip.h"
 #include "common/pc_input.h"
 #include "core/diag.h"
 #include "core/log.h"
@@ -273,6 +274,10 @@ int32_t BlackWebRequestBoot(const char* data_dir) {
         return -1;
     }
     return 1;
+}
+
+void BlackWebSetSkipCutscenes(uint32_t on) {
+    common::g_skip_cutscenes.store(on != 0, std::memory_order_relaxed);
 }
 
 int32_t BlackWebSetRole(uint32_t role, const char* player_name, uint32_t host_peer) {

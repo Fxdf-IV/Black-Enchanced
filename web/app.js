@@ -1570,9 +1570,43 @@ function bindEvents() {
   });
 
   // Assist bar botões (em menus do jogo !inLevel)
+  // "Pular Intro / Start": liga o pulo de cutscenes no motor e alterna, em ciclo de 3 s, (1) apertos curtos de Enter com soltura entre eles
+  // (a tela PRESS START só reconhece um aperto novo) e (2) Enter segurado (vídeos/créditos). Não há como
+  // saber qual tela está ativa, então os dois modos se revezam. Para ao entrar na fase, após 4 min,
+  // em novo clique ou ao pressionar qualquer tecla.
+  let skipBurstTimer = null;
+  const stopSkipBurst = () => {
+    if (skipBurstTimer !== null) {
+      clearInterval(skipBurstTimer);
+      skipBurstTimer = null;
+      engine.module?._BlackWebSetSkipCutscenes?.(0);
+      window.removeEventListener("keydown", stopSkipBurst, true);
+    }
+  };
   document.getElementById("btn-assist-start")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();
-    pulseKey("Enter", 150);
+    if (skipBurstTimer !== null) {
+      stopSkipBurst();
+      return;
+    }
+    const startedAt = performance.now();
+    // Motor: encerra qualquer cutscene XMV em reprodução (hook sub_00209D40); o Enter cuida do PRESS START/menus.
+    engine.module?._BlackWebSetSkipCutscenes?.(1);
+    skipBurstTimer = setInterval(() => {
+      const t = performance.now() - startedAt;
+      if (isInLevelNow() || t > 240000) {
+        stopSkipBurst();
+        return;
+      }
+      const phase = t % 3000;
+      if (phase < 1500) {
+        // 70 ms apertado a cada 140 ms (soltura de 70 ms)
+        if (Math.floor(phase / 70) % 2 === 0) pulseKey("Enter", 70);
+      } else {
+        pulseKey("Enter", 200);
+      }
+    }, 35);
+    window.addEventListener("keydown", stopSkipBurst, true);
   });
   document.getElementById("btn-assist-a")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();

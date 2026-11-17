@@ -6,14 +6,35 @@
 // delega imediatamente para a função original sem alterar o estado da campanha.
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
+#include "common/cutscene_skip.h"
 #include "common/pc_input.h"
+#include "core/log.h"
 #include "game/black_addrs.h"
 #include "mp/mp_bridge.h"
 #include "netcore/limits.hpp"
 #include "netcore/protocol.hpp"
 #include "xdk/hle.h"
+
+// 0. Atualização por quadro do player de filme XMV (0x000C4570; ESI = player). Os três donos do player
+//    (sub_00209D40, sub_00209DC0 e sub_000D3620) encerram o vídeo quando [player+0x62] ("filme terminou",
+//    definido em 0x000C4704) vira 1 e então liberam o decodificador (sub_000DB190). Com o pulo ativo (botão
+//    "Pular Intro" do cliente web) marcamos esse byte depois da atualização normal, e o próprio jogo executa
+//    o encerramento limpo.
+X86_EXTERN_FUNC(__imp__sub_000C4570);
+X86_FUNC(sub_000C4570) {
+    const uint32_t player = ctx.esi;
+    __imp__sub_000C4570(ctx, base);
+    if (common::g_skip_cutscenes.load(std::memory_order_relaxed) && player >= 0x10000u) {
+        static std::atomic<uint32_t> logged{0};
+        if (black::R8(base, player + 0x62u) == 0u && logged.fetch_add(1) < 8u) {
+            LOGI("skip_cutscenes: forcando fim do filme XMV (player=0x%08X)", player);
+        }
+        black::W8(base, player + 0x62u, 1u);
+    }
+}
 
 // 1. Quadro principal (0x0020F6A0): drena pacotes e atualiza atores remotos antes da simulação;
 //    lê e transmite o estado do jogador local depois da simulação.
