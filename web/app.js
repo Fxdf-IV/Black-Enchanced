@@ -1570,10 +1570,13 @@ function bindEvents() {
   });
 
   // Assist bar botões (em menus do jogo !inLevel)
-  // "Pular Intro / Start": liga o pulo de cutscenes no motor e alterna, em ciclo de 3 s, (1) apertos curtos de Enter com soltura entre eles
-  // (a tela PRESS START só reconhece um aperto novo) e (2) Enter segurado (vídeos/créditos). Não há como
-  // saber qual tela está ativa, então os dois modos se revezam. Para ao entrar na fase, após 4 min,
-  // em novo clique ou ao pressionar qualquer tecla.
+  // "Pular Intro / Start":
+  //  - clique: pula só a cutscene em reprodução (modo 2 do motor, consumido pelo primeiro filme). Se nenhum
+  //    filme estiver tocando (ex.: PRESS START), aperta Start. Dificuldade e missão ficam por conta do jogador.
+  //  - Shift+clique: pula TODAS (modo 1 do motor) e alterna, em ciclo de 3 s, (1) apertos curtos de Enter com soltura
+  //    entre eles (a tela PRESS START só reconhece um aperto novo) e (2) Enter segurado (vídeos/créditos). Não há como
+  //    saber qual tela está ativa, então os dois modos se revezam. Para ao entrar na fase, após 4 min,
+  //    em novo clique ou ao pressionar qualquer tecla.
   let skipBurstTimer = null;
   const stopSkipBurst = () => {
     if (skipBurstTimer !== null) {
@@ -1589,8 +1592,21 @@ function bindEvents() {
       stopSkipBurst();
       return;
     }
+    if (!e.shiftKey) {
+      // Arma o pulo de UMA cutscene. Se o motor consumiu (modo voltou a 0), havia filme tocando: só isso.
+      // Senão não havia filme (ex.: PRESS START): desarma e aperta Start.
+      const mod = engine.module;
+      mod?._BlackWebSetSkipCutscenes?.(2);
+      setTimeout(() => {
+        if (mod?._BlackWebGetSkipCutscenes?.() === 2) {
+          mod._BlackWebSetSkipCutscenes(0);
+          pulseKey("Enter", 150);
+        }
+      }, 400);
+      return;
+    }
     const startedAt = performance.now();
-    // Motor: encerra qualquer cutscene XMV em reprodução (hook sub_00209D40); o Enter cuida do PRESS START/menus.
+    // Motor: encerra toda cutscene XMV em reprodução (hook sub_000C4570); o Enter cuida do PRESS START/menus.
     engine.module?._BlackWebSetSkipCutscenes?.(1);
     skipBurstTimer = setInterval(() => {
       const t = performance.now() - startedAt;
