@@ -650,7 +650,9 @@ bool HostSession::apply_validated_fire(HostPlayerSlot& shooter, const FireEvent&
                 continue;
             }
             const float dx = cand.position.x - msg.origin.x;
-            const float dy = cand.position.y - msg.origin.y;
+            // position é a posição dos pés; o raio sai da altura dos olhos. Mira no centro do corpo
+            // (~0,9 m acima dos pés) para que tiros na cabeça/peito acertem dentro do raio de 1,2 m.
+            const float dy = (cand.position.y + 0.9f) - msg.origin.y;
             const float dz = cand.position.z - msg.origin.z;
             const float t = dx * dir_x + dy * dir_y + dz * dir_z;
             if (t <= 0.0f || t > weapon->max_range) continue;
