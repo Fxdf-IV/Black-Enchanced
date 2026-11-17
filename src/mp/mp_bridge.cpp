@@ -1912,8 +1912,10 @@ bool PrepareRemoteActorSpawn(uint8_t* guest_base, uint8_t& out_slot, uint32_t& o
         g_remote_dedicated_failed[target_slot] = true;
         return false;
     }
+    // Arquétipo 0 é o corpo do próprio jogador (sem malha visível em terceira pessoa): o ator
+    // remoto nascia "invisível". Usa o primeiro arquétipo humano carregado (aliado/inimigo).
     uint32_t valid_arch = 0xFFFFFFFFu;
-    for (uint32_t a = 0; a < 44u; ++a) {
+    for (uint32_t a = 1; a < 44u; ++a) {
         if (black::R32(guest_base, pool + 0x7A20u + a * 0x40u) != 0u && a != 0x27u) {
             valid_arch = a;
             break;

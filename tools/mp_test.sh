@@ -19,7 +19,7 @@ fi
 
 echo "Sala de teste: $ROOM"
 # Janelas separadas, lado a lado, cada uma com perfil próprio (não compartilham BroadcastChannel).
-"$BROWSER" "${FLAGS[@]}" --user-data-dir=/tmp/black-mp-host   --new-window --window-position=0,0     --window-size=960,800 "http://127.0.0.1:$PORT/?host=$ROOM" >/dev/null 2>&1 &
+"$BROWSER" "${FLAGS[@]}" --user-data-dir=/tmp/black-mp-host --remote-debugging-port=9301   --new-window --window-position=0,0     --window-size=960,800 "http://127.0.0.1:$PORT/?host=$ROOM" >/dev/null 2>&1 &
 sleep 2
-"$BROWSER" "${FLAGS[@]}" --user-data-dir=/tmp/black-mp-client --new-window --window-position=960,0   --window-size=960,800 "http://127.0.0.1:$PORT/?room=$ROOM" >/dev/null 2>&1 &
+"$BROWSER" "${FLAGS[@]}" --user-data-dir=/tmp/black-mp-client --remote-debugging-port=9302 --new-window --window-position=960,0   --window-size=960,800 "http://127.0.0.1:$PORT/?room=$ROOM" >/dev/null 2>&1 &
 echo "Host: janela da esquerda (clique em Host/Iniciar). Cliente: janela da direita (?room=$ROOM)."
