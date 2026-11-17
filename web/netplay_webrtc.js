@@ -315,6 +315,19 @@ function fromHex(hex) {
   return out;
 }
 
+function getTabSessionId() {
+  try {
+    let id = sessionStorage.getItem("black_tab_session_id");
+    if (!id) {
+      id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      sessionStorage.setItem("black_tab_session_id", id);
+    }
+    return id;
+  } catch {
+    return `t-${Math.random().toString(36).slice(2, 8)}`;
+  }
+}
+
 // Transporte WebRTC DataChannels (reliable + unreliable) com sinalização via WebSocket (Cloudflare Worker),
 // fallback automático para WebSocket relay quando NAT impedir P2P, ou BroadcastChannel local entre abas.
 export class WebRtcTransport {
@@ -325,14 +338,17 @@ export class WebRtcTransport {
     this.onEvent = onEvent || (() => {});
     this.onLog = onLog || (() => {});
     this.localSignalingId = Math.floor(100000 + Math.random() * 899999);
+    this.tabSessionId = getTabSessionId();
+    this.closed = false;
     this.role = "client";
     this.hostPeerId = null;
-    this.peers = new Map(); // remotePeerId -> { pc, reliable, unreliable }
+    this.peers = new Map(); // remotePeerId -> { pc, reliable, unreliable, tabId, ... }
     this.bc = null;
     this.ws = null;
   }
 
   async start(preferredRole = "auto") {
+    this.closed = false;
     if (this.signalingUrl) {
       this.startWebSocketSignaling();
     } else {
@@ -347,27 +363,58 @@ export class WebRtcTransport {
       this.hostPeerId = this.localSignalingId;
       this.onLog(`Sala ${this.roomCode} aberta como HOST (ID ${this.localSignalingId}).`);
       this.onEvent({ type: "role", role: "host", peerId: this.localSignalingId, meta: this.roomMeta });
-      this.bc.postMessage({ type: "host_ready", from: this.localSignalingId, meta: this.roomMeta });
+      this.bc.postMessage({
+        type: "host_ready",
+        from: this.localSignalingId,
+        tabId: this.tabSessionId,
+        meta: this.roomMeta,
+      });
     } else {
       this.onLog(`Procurando host na sala ${this.roomCode}...`);
-      this.bc.postMessage({ type: "join_request", from: this.localSignalingId });
+      this.bc.postMessage({ type: "join_request", from: this.localSignalingId, tabId: this.tabSessionId });
     }
 
     this.bc.onmessage = async (ev) => {
       const msg = ev.data;
       if (!msg || msg.from === this.localSignalingId) return;
 
+      if (msg.type === "peer_leaving" && msg.from) {
+        this.handleRemoteDisconnect(msg.from);
+        return;
+      }
+      if (msg.type === "host_left" && this.role === "client" && msg.from === this.hostPeerId) {
+        this.onLog("O host encerrou a sala.");
+        this.handleRemoteDisconnect(msg.from);
+        return;
+      }
+
       if (msg.type === "join_request" && this.role === "host") {
+        // Evita par fantasma caso a mesma aba recarregue ou troque de ID sem fechar a conexão antiga.
+        if (msg.tabId) {
+          for (const [oldId, oldEntry] of Array.from(this.peers.entries())) {
+            if (oldId !== msg.from && oldEntry.tabId === msg.tabId) {
+              this.handleRemoteDisconnect(oldId);
+            }
+          }
+        }
         if (this.peers.size >= 3 || this.peers.has(msg.from)) return;
-        this.bc.postMessage({ type: "host_ready", from: this.localSignalingId, meta: this.roomMeta });
-        await this.initiatePeerConnection(msg.from, true);
+        this.bc.postMessage({
+          type: "host_ready",
+          from: this.localSignalingId,
+          tabId: this.tabSessionId,
+          meta: this.roomMeta,
+        });
+        await this.initiatePeerConnection(msg.from, true, msg.tabId || null);
       } else if (msg.type === "host_ready" && this.role === "client") {
+        if (this.hostPeerId && this.hostPeerId !== msg.from && this.peers.has(this.hostPeerId)) {
+          this.handleRemoteDisconnect(this.hostPeerId);
+        }
         this.hostPeerId = msg.from;
         if (msg.meta) {
           this.onEvent({ type: "room_meta", hostPeerId: msg.from, meta: msg.meta });
         }
         if (!this.peers.has(msg.from)) {
-          this.bc.postMessage({ type: "join_request", from: this.localSignalingId });
+          this.bc.postMessage({ type: "join_request", from: this.localSignalingId, tabId: this.tabSessionId });
         }
       } else if (msg.to === this.localSignalingId) {
         await this.handleSignalingMessage(msg.from, msg);
@@ -477,12 +524,17 @@ export class WebRtcTransport {
     }
   }
 
-  async initiatePeerConnection(remoteId, isOfferer) {
+  async initiatePeerConnection(remoteId, isOfferer, tabId = null) {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
     const prev = this.peers.get(remoteId);
+    if (prev?.pc && prev.pc !== pc) {
+      try {
+        prev.pc.close();
+      } catch {}
+    }
     const entry = {
       pc,
       reliable: null,
@@ -490,6 +542,7 @@ export class WebRtcTransport {
       relayFallback: Boolean(prev?.relayFallback),
       connectedEmitted: Boolean(prev?.connectedEmitted),
       fallbackTimer: prev?.fallbackTimer || 0,
+      tabId: tabId || prev?.tabId || null,
     };
     this.peers.set(remoteId, entry);
 
@@ -505,6 +558,14 @@ export class WebRtcTransport {
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === "failed") {
         this.enableRelayFallback(remoteId, entry, "ICE failed");
+      } else if (pc.iceConnectionState === "closed" && !entry.relayFallback) {
+        this.handleRemoteDisconnect(remoteId);
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if ((pc.connectionState === "failed" || pc.connectionState === "closed") && !entry.relayFallback) {
+        this.handleRemoteDisconnect(remoteId);
       }
     };
 
@@ -535,9 +596,8 @@ export class WebRtcTransport {
         }
       };
       dc.onclose = () => {
-        if (!entry.relayFallback && entry.connectedEmitted) {
-          entry.connectedEmitted = false;
-          this.onEvent({ type: "disconnected", peer: remoteId });
+        if (!entry.relayFallback && this.peers.get(remoteId) === entry) {
+          this.handleRemoteDisconnect(remoteId);
         }
       };
       dc.onmessage = (ev) => {
@@ -630,7 +690,20 @@ export class WebRtcTransport {
   }
 
   close() {
+    if (this.closed) return;
+    this.closed = true;
     if (this.clientFallbackTimer) clearTimeout(this.clientFallbackTimer);
+    if (this.bc) {
+      try {
+        this.bc.postMessage({
+          type: this.role === "host" ? "host_left" : "peer_leaving",
+          from: this.localSignalingId,
+        });
+      } catch {}
+      this.bc.onmessage = null;
+      this.bc.close();
+      this.bc = null;
+    }
     for (const [, entry] of this.peers) {
       if (entry.fallbackTimer) clearTimeout(entry.fallbackTimer);
       try {
@@ -638,7 +711,9 @@ export class WebRtcTransport {
       } catch {}
     }
     this.peers.clear();
-    if (this.bc) this.bc.close();
-    if (this.ws) this.ws.close();
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
   }
 }

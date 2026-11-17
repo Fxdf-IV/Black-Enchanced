@@ -35,6 +35,8 @@ enum class MessageType : uint8_t {
     Kick = 15,
     LoadoutRequest = 16,
     LoadoutState = 17,
+    PlayerRoster = 18,
+    BlastEvent = 19,
 };
 
 // Os dois canais que todo transporte precisa oferecer (ENet: canais; WebRTC: dois data channels).
@@ -93,6 +95,9 @@ struct Welcome {
     uint8_t max_players = kMaxPlayers;
     uint16_t tick_rate_hz = 30;
     uint16_t snapshot_rate_hz = 20;
+    uint8_t game_mode = 0;  // 0=PvP, 1=Coop
+    uint8_t arena_id = 0;
+    uint32_t available_weapon_mask = 0xFFFFFFFFu;
     friend bool operator==(const Welcome&, const Welcome&) = default;
 };
 
@@ -106,6 +111,8 @@ struct MatchStart {
     uint16_t time_limit_s = 0;
     uint16_t kill_limit = 0;
     uint8_t arena_id = 0;
+    uint8_t game_mode = 0;
+    uint32_t available_weapon_mask = 0xFFFFFFFFu;
     friend bool operator==(const MatchStart&, const MatchStart&) = default;
 };
 
@@ -242,9 +249,36 @@ struct LoadoutState {
     friend bool operator==(const LoadoutState&, const LoadoutState&) = default;
 };
 
+struct PlayerRosterEntry {
+    uint8_t player_id = 0;
+    std::string name;
+    friend bool operator==(const PlayerRosterEntry&, const PlayerRosterEntry&) = default;
+};
+
+struct PlayerRoster {
+    std::vector<PlayerRosterEntry> players;
+    friend bool operator==(const PlayerRoster&, const PlayerRoster&) = default;
+};
+
+enum BlastFlags : uint8_t {
+    kBlastFlagClaim = 1 << 0,
+    kBlastFlagVisualOnly = 1 << 1,
+};
+
+struct BlastEvent {
+    uint32_t client_tick = 0;
+    uint8_t attacker = kNoPlayer;
+    uint8_t target = kNoPlayer;   // kNoPlayer = sem vítima direta / apenas explosão
+    uint8_t weapon = kNoWeapon;   // 14=M203, 15=RPG-7, kNoWeapon=granada/barril
+    uint8_t flags = 0;
+    Vec3 origin;
+    float damage = 0.0f;
+    friend bool operator==(const BlastEvent&, const BlastEvent&) = default;
+};
+
 using Message = std::variant<Hello, Welcome, Reject, MatchStart, MatchEnd, PlayerState, WorldSnapshot, FireEvent,
                              DamageEvent, DeathEvent, RespawnEvent, Ping, Pong, Leave, Kick, LoadoutRequest,
-                             LoadoutState>;
+                             LoadoutState, PlayerRoster, BlastEvent>;
 
 MessageType type_of(const Message& m);
 

@@ -35,9 +35,24 @@ void check_roundtrip(const Message& m) {
 
 void test_protocol_roundtrip_all_messages() {
     check_roundtrip(Hello{.protocol_version = kProtocolVersion, .rules_hash = 0x12345678u, .name = "Kellar"});
-    check_roundtrip(Welcome{.player_id = 1, .max_players = 4, .tick_rate_hz = 30, .snapshot_rate_hz = 15});
+    check_roundtrip(Welcome{
+        .player_id = 1,
+        .max_players = 4,
+        .tick_rate_hz = 30,
+        .snapshot_rate_hz = 15,
+        .game_mode = 1,
+        .arena_id = 3,
+        .available_weapon_mask = 0x0000FFFFu,
+    });
     check_roundtrip(Reject{.reason = RejectReason::RoomFull});
-    check_roundtrip(MatchStart{.start_tick = 10, .time_limit_s = 600, .kill_limit = 15, .arena_id = 2});
+    check_roundtrip(MatchStart{
+        .start_tick = 10,
+        .time_limit_s = 600,
+        .kill_limit = 15,
+        .arena_id = 2,
+        .game_mode = 1,
+        .available_weapon_mask = 0x0000F0FFu,
+    });
     check_roundtrip(MatchEnd{.winner = 2});
     check_roundtrip(MatchEnd{.winner = kNoPlayer});
     check_roundtrip(PlayerState{
@@ -117,6 +132,31 @@ void test_protocol_roundtrip_all_messages() {
         .kit_cost = 4250,
         .buy_ticks_left = 300,
     });
+    check_roundtrip(PlayerRoster{
+        .players =
+            {
+                PlayerRosterEntry{.player_id = 0, .name = "HostAlpha"},
+                PlayerRosterEntry{.player_id = 1, .name = "ClientBravo"},
+            },
+    });
+    check_roundtrip(BlastEvent{
+        .client_tick = 420,
+        .attacker = 1,
+        .target = 0,
+        .weapon = 15,
+        .flags = kBlastFlagClaim,
+        .origin = Vec3{4.0f, 1.0f, -6.0f},
+        .damage = 95.0f,
+    });
+    check_roundtrip(BlastEvent{
+        .client_tick = 421,
+        .attacker = kNoPlayer,
+        .target = kNoPlayer,
+        .weapon = kNoWeapon,
+        .flags = kBlastFlagVisualOnly,
+        .origin = Vec3{-10.0f, 0.0f, 18.0f},
+        .damage = 80.0f,
+    });
 }
 
 void test_hostile_and_malformed_inputs() {
@@ -190,6 +230,13 @@ void test_hostile_and_malformed_inputs() {
     CHECK(!is_valid(Message{LoadoutRequest{.primary_weapon = kMaxWeapons, .secondary_weapon = 0, .tactical_flags = 0}}));
     CHECK(!is_valid(Message{LoadoutRequest{.primary_weapon = 7, .secondary_weapon = 0, .tactical_flags = 0x80}}));
     CHECK(!is_valid(Message{LoadoutState{.player_id = kMaxPlayers, .primary_weapon = 7, .secondary_weapon = 0, .tactical_flags = 0, .last_result = 0}}));
+    CHECK(!is_valid(Message{PlayerRoster{.players = {PlayerRosterEntry{.player_id = 0, .name = "A"}, PlayerRosterEntry{.player_id = 0, .name = "B"}}}}));
+    CHECK(!is_valid(Message{PlayerRoster{.players = {PlayerRosterEntry{.player_id = kMaxPlayers, .name = "Bad"}}}}));
+    CHECK(!is_valid(Message{BlastEvent{.attacker = 0, .target = 0, .weapon = 15, .flags = kBlastFlagClaim, .origin = Vec3{0, 0, 0}, .damage = 251.0f}}));
+    CHECK(!is_valid(Message{BlastEvent{.attacker = 0, .target = 0, .weapon = 15, .flags = kBlastFlagClaim, .origin = Vec3{0, 0, 0}, .damage = std::numeric_limits<float>::quiet_NaN()}}));
+    CHECK(!is_valid(Message{BlastEvent{.attacker = 0, .target = 0, .weapon = 15, .flags = 0x80, .origin = Vec3{0, 0, 0}, .damage = 50.0f}}));
+    CHECK(!is_valid(Message{BlastEvent{.attacker = 0, .target = 0, .weapon = kMaxWeapons, .flags = kBlastFlagClaim, .origin = Vec3{kWorldLimit + 10.0f, 0, 0}, .damage = 50.0f}}));
+    CHECK(!is_valid(Message{Welcome{.player_id = 0, .max_players = 4, .tick_rate_hz = 30, .snapshot_rate_hz = 15, .game_mode = 9}}));
 
     // 9. Fuzz determinístico (10.000 pacotes pseudoaleatórios nunca podem causar falha ou leitura inválida)
     std::mt19937 rng(0xB1AC2006u);
@@ -200,7 +247,7 @@ void test_hostile_and_malformed_inputs() {
         if (len >= 3 && (rng() % 2 == 0)) {
             buf[0] = uint8_t(kPacketMagic);
             buf[1] = uint8_t(kPacketMagic >> 8);
-            buf[2] = static_cast<uint8_t>(1 + (rng() % 18));
+            buf[2] = static_cast<uint8_t>(1 + (rng() % 19));
         }
         auto res = decode(buf);
         if (res.message.has_value()) {
@@ -672,9 +719,189 @@ void test_cs_loadout_economy_and_limits() {
     CHECK(fclient.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::Ok));
     CHECK(fclient.local_loadout().primary_weapon == 6);
     CHECK(fclient.local_loadout().kit_cost == 1800 + 650 + 300);
+
+    // 9. Roster de nomes replicado ao cliente e janela de compra reaberta na entrada em gameplay (entered_level)
+    CHECK(c1.player_name(0) == "HostCS");
+    CHECK(c1.player_name(1) == "ClientCS");
+
+    RulesConfig late_rules = RulesConfig::cs_loadout_deathmatch();
+    late_rules.buy_window_ticks = 10;
+    LoopbackEndpoint lh_ep;
+    LoopbackEndpoint lc_ep;
+    auto [l_h2c, l_c2h] = LoopbackEndpoint::link(lh_ep, lc_ep);
+    (void)l_h2c;
+    HostSession lhost(lh_ep, late_rules, "AlphaHost");
+    ClientSession lclient(lc_ep, l_c2h, late_rules, "BravoGuest");
+    CHECK(lclient.send_hello());
+    lhost.tick();
+    lclient.poll();
+    lhost.start_match();
+    // Avança 25 ticks enquanto o cliente ainda estaria nos menus
+    for (int i = 0; i < 25; ++i) lhost.tick();
+    lclient.poll();
+    CHECK(lclient.player_name(0) == "AlphaHost");
+    // Primeiro PlayerState vivo reabre a janela de compra do cliente na fase
+    CHECK(lclient.send_local_state(PlayerState{
+        .client_tick = 26,
+        .position = lhost.slots()[1].position,
+        .yaw = 0.0f,
+        .pitch = 0.0f,
+        .velocity = Vec3{0.0f, 0.0f, 0.0f},
+        .anim_state = 0,
+        .weapon = 0,
+        .flags = kFlagAlive,
+    }));
+    lhost.tick();
+    lclient.poll();
+    CHECK(lclient.local_loadout().buy_ticks_left > 0);
+    CHECK(lclient.send_loadout_request(LoadoutRequest{.primary_weapon = 3, .secondary_weapon = 0, .tactical_flags = 0}));
+    lhost.tick();
+    lclient.poll();
+    CHECK(lclient.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::Ok));
+
+    // Depois da janela expirar no host (cutscene), refresh_buy_window reabre a compra para o slot.
+    for (int i = 0; i < 20; ++i) lhost.tick();
+    CHECK(lhost.slot_loadout_state(0).buy_ticks_left == 0);
+    lhost.refresh_buy_window(0);
+    CHECK(lhost.slot_loadout_state(0).buy_ticks_left == late_rules.buy_window_ticks);
+    CHECK(lhost.local_buy_loadout(LoadoutRequest{.primary_weapon = 3, .secondary_weapon = 0, .tactical_flags = 0}));
+
+    // Pacote atrasado pré-respawn distante do spawn durante janela de graça de 1s é descartado sem penalizar o slot.
+    CHECK(lhost.apply_damage(0, 1, 100, 3));
+    for (uint32_t t = 0; t <= late_rules.respawn_delay_ticks + 1; ++t) lhost.tick();
+    lclient.poll();
+    CHECK((lhost.slots()[1].flags & kFlagAlive) != 0);
+    const Vec3 far_pre_respawn{lhost.slots()[1].position.x + 25.0f, 0.0f, 0.0f};
+    CHECK(lclient.send_local_state(PlayerState{
+        .client_tick = 500,
+        .position = far_pre_respawn,
+        .yaw = 0.0f,
+        .pitch = 0.0f,
+        .velocity = Vec3{0.0f, 0.0f, 0.0f},
+        .anim_state = 0,
+        .weapon = 0,
+        .flags = kFlagAlive,
+    }));
+    lhost.tick();
+    CHECK(lhost.slots()[1].occupied);
+    CHECK(lhost.slots()[1].violations == 0);
 }
 
 }  // namespace
+
+void test_p3a_blast_weapon_mask_and_coop_ff() {
+    // 1. PvP: level weapon mask + BlastEvent claim + anti-spoof distance check + self/barrel blast
+    auto rules = RulesConfig::cs_loadout_deathmatch();
+    rules.starting_credits = 5000;
+    rules.spawns = {SpawnPoint{Vec3{0, 0, 0}, 0}, SpawnPoint{Vec3{2, 0, 0}, 0}};
+    LoopbackEndpoint host_ep, c1_ep;
+    auto [h_c1, c1_h] = LoopbackEndpoint::link(host_ep, c1_ep);
+    (void)h_c1;
+
+    HostSession host(host_ep, rules, "Host");
+    // Apenas armas 0 (Glock), 7 (AK-47) e 15 (RPG-7) carregadas na fase
+    const uint32_t mask = (1u << 0) | (1u << 7) | (1u << 15);
+    host.set_level_context(4, mask);
+    host.start_match();
+
+    ClientSession c1(c1_ep, c1_h, rules, "P2");
+    CHECK(c1.send_hello());
+    for (int i = 0; i < 4; ++i) {
+        host.tick();
+        c1.poll();
+    }
+    CHECK(c1.is_joined());
+    CHECK(c1.active_arena_id() == 4);
+    CHECK(c1.available_weapon_mask() == mask);
+
+    // Tentativa de comprar arma 8 (M16A2, fora da máscara) deve falhar com InvalidItem
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = 8, .secondary_weapon = 0, .tactical_flags = 0}));
+    host.tick();
+    c1.poll();
+    CHECK(c1.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::InvalidItem));
+
+    // Comprar arma 7 (AK-47, na máscara) deve funcionar
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = 7, .secondary_weapon = 0, .tactical_flags = 0}));
+    host.tick();
+    c1.poll();
+    CHECK(c1.local_loadout().last_result == static_cast<uint8_t>(LoadoutResult::Ok));
+    CHECK(c1.local_loadout().primary_weapon == 7);
+
+    // Atualizar posição próxima do host/cliente e validar BlastEvent fora do raio vs dentro do raio
+    PlayerState ps0{};
+    ps0.sequence = 1;
+    ps0.position = Vec3{1.0f, 0.0f, 0.0f};
+    ps0.weapon = 0;
+    ps0.flags = kFlagAlive;
+    host.set_local_player_state(ps0);
+
+    // Spoof distante (> 30u longe do alvo) deve ser ignorado sem causar dano
+    CHECK(c1.send_blast(BlastEvent{
+        .client_tick = 5,
+        .attacker = 1,
+        .target = 0,
+        .weapon = 15,
+        .flags = kBlastFlagClaim,
+        .origin = Vec3{80.0f, 0.0f, 0.0f},
+        .damage = 75.0f,
+    }));
+    host.tick();
+    CHECK(host.slots()[0].health == 100);
+
+    // Explosão próxima ao slot 0 (dentro do raio) aplica dano autoritativo e emite DamageEvent
+    c1.clear_events();
+    CHECK(c1.send_blast(BlastEvent{
+        .client_tick = 6,
+        .attacker = 1,
+        .target = 0,
+        .weapon = 15,
+        .flags = kBlastFlagClaim,
+        .origin = Vec3{3.0f, 0.0f, 0.0f},
+        .damage = 65.0f,
+    }));
+    host.tick();
+    c1.poll();
+    CHECK(host.slots()[0].health == 35);
+    CHECK(!c1.recent_damages().empty());
+    CHECK(c1.recent_damages().back().attacker == 1);
+    CHECK(c1.recent_damages().back().target == 0);
+    CHECK(!c1.recent_blasts().empty());
+
+    // Explosão ambiental/auto-dano fatal no slot 0 não dá kill para ninguém e respawna depois
+    CHECK(host.local_blast(BlastEvent{
+        .client_tick = 7,
+        .attacker = kNoPlayer,
+        .target = 0,
+        .weapon = kNoWeapon,
+        .flags = kBlastFlagClaim,
+        .origin = Vec3{1.5f, 0.0f, 0.0f},
+        .damage = 60.0f,
+    }));
+    CHECK(host.slots()[0].health == 0);
+    CHECK(host.slots()[0].deaths == 1);
+    CHECK(host.slots()[1].kills == 0);
+
+    // 2. Co-op: friendly_fire = false impede dano entre aliados (tiro ou explosão)
+    auto coop_rules = RulesConfig::default_deathmatch();
+    coop_rules.game_mode = GameMode::Coop;
+    coop_rules.friendly_fire = false;
+    coop_rules.spawns = rules.spawns;
+    LoopbackEndpoint ch_ep, cc_ep;
+    auto [ch_cc, cc_ch] = LoopbackEndpoint::link(ch_ep, cc_ep);
+    (void)ch_cc;
+    HostSession coop_host(ch_ep, coop_rules, "CoopHost");
+    coop_host.start_match();
+    ClientSession coop_c(cc_ep, cc_ch, coop_rules, "Ally");
+    CHECK(coop_c.send_hello());
+    for (int i = 0; i < 4; ++i) {
+        coop_host.tick();
+        coop_c.poll();
+    }
+    CHECK(coop_c.is_joined());
+    CHECK(coop_c.game_mode() == static_cast<uint8_t>(GameMode::Coop));
+    CHECK(!coop_host.apply_damage(1, 0, 50, 7));
+    CHECK(coop_host.slots()[0].health == 100);
+}
 
 int main() {
     test_protocol_roundtrip_all_messages();
@@ -683,6 +910,7 @@ int main() {
     test_rate_limit_and_malformed_kick();
     test_host_apply_damage_and_kill_attribution();
     test_cs_loadout_economy_and_limits();
+    test_p3a_blast_weapon_mask_and_coop_ff();
     std::printf("[netcore_tests] All protocol, fuzzing, session and security tests PASSED.\n");
     return 0;
 }

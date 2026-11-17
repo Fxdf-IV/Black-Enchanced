@@ -49,6 +49,8 @@ struct HostPlayerSlot {
     uint8_t tactical_flags = 0;
     uint8_t last_loadout_result = 0;
     uint32_t spawn_tick = 0;
+    uint32_t respawn_grace_until_tick = 0;
+    bool entered_level = false;
 
     // Contadores de segurança por cliente
     uint16_t packets_in_window = 0;
@@ -65,15 +67,22 @@ public:
     // Atualiza os pontos de respawn da partida para coordenadas reais da fase sem alterar rules_hash_.
     void set_spawn_points(std::vector<SpawnPoint> spawns);
 
+    // Sincroniza fase ativa e máscara de armas nativas carregadas (sem alterar rules_hash_).
+    void set_level_context(uint8_t arena_id, uint32_t available_weapon_mask);
+
     // Atualiza o estado do jogador local do host (slot 0).
     void set_local_player_state(const PlayerState& state);
 
-    // O próprio host dispara (passa pela mesma validação de arma/cadência/alcance que os clientes).
+    // O próprio host dispara / reivindica dano de explosão passando pela mesma validação dos clientes.
     bool local_fire(const FireEvent& ev);
+    bool local_blast(BlastEvent ev);
 
     // O próprio host compra/equipa loadout passando pela mesma validação de orçamento e janela de compra.
     bool local_buy_loadout(const LoadoutRequest& req);
     LoadoutState slot_loadout_state(uint8_t player_id) const;
+
+    // Reabre a janela de compra do slot quando o controle jogável inicia após cutscene.
+    void refresh_buy_window(uint8_t player_id);
 
     // Aplica dano autoritativo de um atacante para uma vítima (usado pelo host após validação no motor).
     bool apply_damage(uint8_t attacker_id, uint8_t victim_id, uint16_t amount, uint8_t weapon_id = 0);
@@ -86,9 +95,15 @@ public:
     uint8_t winner() const { return winner_; }
     const RulesConfig& rules() const { return rules_; }
     const std::array<HostPlayerSlot, kMaxPlayers>& slots() const { return slots_; }
+    uint8_t active_arena_id() const { return active_arena_id_; }
+    uint32_t available_weapon_mask() const { return available_weapon_mask_; }
     std::size_t player_count() const;
     const std::vector<FireEvent>& recent_fires() const { return recent_fires_; }
-    void clear_events() { recent_fires_.clear(); }
+    const std::vector<BlastEvent>& recent_blasts() const { return recent_blasts_; }
+    void clear_events() {
+        recent_fires_.clear();
+        recent_blasts_.clear();
+    }
 
 private:
     void handle_packet(PeerId peer, const std::vector<uint8_t>& payload);
@@ -96,15 +111,20 @@ private:
     void handle_hello(PeerId peer, const Hello& msg);
     void handle_player_state(HostPlayerSlot& slot, const PlayerState& msg);
     void handle_fire(HostPlayerSlot& shooter, const FireEvent& msg);
+    void handle_blast(HostPlayerSlot& sender, const BlastEvent& msg);
     void handle_loadout_request(HostPlayerSlot& slot, const LoadoutRequest& msg);
 
     bool apply_validated_fire(HostPlayerSlot& shooter, const FireEvent& msg);
+    bool apply_validated_blast(HostPlayerSlot* sender, const BlastEvent& msg);
+    bool apply_damage_internal(uint8_t attacker_id, uint8_t victim_id, uint16_t amount,
+                               uint8_t weapon_id, bool allow_self_or_env);
     bool apply_loadout(HostPlayerSlot& slot, const LoadoutRequest& req);
     LoadoutState build_loadout_state(const HostPlayerSlot& slot, LoadoutResult result) const;
     uint32_t compute_kit_cost(uint8_t primary_weapon, uint8_t secondary_weapon, uint8_t tactical_flags) const;
     void init_slot_loadout(HostPlayerSlot& slot);
     void spawn_player(HostPlayerSlot& slot, uint8_t spawn_idx);
     void check_match_end();
+    void broadcast_roster();
     void broadcast_snapshot();
     void penalize(PeerId peer, HostPlayerSlot* slot, KickReason reason_if_kicked);
     void kick_peer(PeerId peer, HostPlayerSlot* slot, KickReason reason);
@@ -118,9 +138,12 @@ private:
     MatchPhase phase_ = MatchPhase::Warmup;
     uint8_t winner_ = kNoPlayer;
     uint8_t next_spawn_cursor_ = 0;
+    uint8_t active_arena_id_ = 0;
+    uint32_t available_weapon_mask_ = 0xFFFFFFFFu;
 
     std::array<HostPlayerSlot, kMaxPlayers> slots_{};
     std::vector<FireEvent> recent_fires_;
+    std::vector<BlastEvent> recent_blasts_;
     std::unordered_map<PeerId, uint16_t> unauthenticated_packets_;
     std::unordered_map<PeerId, uint8_t> unauthenticated_violations_;
 };
@@ -135,8 +158,9 @@ public:
     // Envia o estado atual do jogador local ao host (canal não confiável, com número de sequência).
     bool send_local_state(PlayerState state);
 
-    // Envia um evento de disparo ao host (canal confiável).
+    // Envia um evento de disparo / reivindicação de explosão ao host (canal confiável).
     bool send_fire(FireEvent ev);
+    bool send_blast(BlastEvent ev);
 
     // Envia pedido de compra/equipamento de loadout ao host (canal confiável).
     bool send_loadout_request(const LoadoutRequest& req);
@@ -157,7 +181,11 @@ public:
     uint8_t winner() const { return winner_; }
     const WorldSnapshot& latest_snapshot() const { return latest_snapshot_; }
     const std::vector<FireEvent>& recent_fires() const { return recent_fires_; }
+    const std::vector<BlastEvent>& recent_blasts() const { return recent_blasts_; }
     const std::vector<DamageEvent>& recent_damages() const { return recent_damages_; }
+    uint8_t active_arena_id() const { return active_arena_id_; }
+    uint8_t game_mode() const { return game_mode_; }
+    uint32_t available_weapon_mask() const { return available_weapon_mask_; }
     const std::vector<DeathEvent>& recent_deaths() const { return recent_deaths_; }
     const std::vector<RespawnEvent>& recent_respawns() const { return recent_respawns_; }
     const std::array<LoadoutState, kMaxPlayers>& loadouts() const { return loadouts_; }
@@ -165,10 +193,14 @@ public:
         return player_id_ < kMaxPlayers ? loadouts_[player_id_] : LoadoutState{};
     }
     const std::vector<LoadoutState>& recent_loadouts() const { return recent_loadouts_; }
+    std::string player_name(uint8_t player_id) const {
+        return player_id < kMaxPlayers ? player_names_[player_id] : std::string{};
+    }
     std::optional<Pong> last_pong() const { return last_pong_; }
 
     void clear_events() {
         recent_fires_.clear();
+        recent_blasts_.clear();
         recent_damages_.clear();
         recent_deaths_.clear();
         recent_respawns_.clear();
@@ -192,12 +224,17 @@ private:
     std::optional<KickReason> kicked_;
     WorldSnapshot latest_snapshot_{};
     std::vector<FireEvent> recent_fires_;
+    std::vector<BlastEvent> recent_blasts_;
     std::vector<DamageEvent> recent_damages_;
     std::vector<DeathEvent> recent_deaths_;
     std::vector<RespawnEvent> recent_respawns_;
     std::array<LoadoutState, kMaxPlayers> loadouts_{};
+    std::array<std::string, kMaxPlayers> player_names_{};
     std::vector<LoadoutState> recent_loadouts_;
     std::optional<Pong> last_pong_;
+    uint8_t active_arena_id_ = 0;
+    uint8_t game_mode_ = 0;
+    uint32_t available_weapon_mask_ = 0xFFFFFFFFu;
 };
 
 }  // namespace netcore

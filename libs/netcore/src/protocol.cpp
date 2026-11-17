@@ -33,6 +33,8 @@ NETCORE_TRAIT(Leave);
 NETCORE_TRAIT(Kick);
 NETCORE_TRAIT(LoadoutRequest);
 NETCORE_TRAIT(LoadoutState);
+NETCORE_TRAIT(PlayerRoster);
+NETCORE_TRAIT(BlastEvent);
 #undef NETCORE_TRAIT
 
 // ---- validação -----------------------------------------------------------------------------
@@ -72,12 +74,12 @@ bool valid_name(const std::string& s) {
 bool valid(const Hello& m) { return valid_name(m.name); }
 bool valid(const Welcome& m) {
     return valid_player(m.player_id) && m.max_players >= 1 && m.max_players <= kMaxPlayers && m.tick_rate_hz >= 1 &&
-           m.tick_rate_hz <= 240 && m.snapshot_rate_hz >= 1 && m.snapshot_rate_hz <= 240;
+           m.tick_rate_hz <= 240 && m.snapshot_rate_hz >= 1 && m.snapshot_rate_hz <= 240 && m.game_mode <= 1u;
 }
 bool valid(const Reject& m) {
     return m.reason >= RejectReason::ProtocolMismatch && m.reason <= RejectReason::NotAccepting;
 }
-bool valid(const MatchStart&) { return true; }
+bool valid(const MatchStart& m) { return m.game_mode <= 1u; }
 bool valid(const MatchEnd& m) { return valid_player_or_none(m.winner); }
 bool valid(const PlayerState& m) {
     return valid_position(m.position) && valid_angle(m.yaw) && valid_angle(m.pitch) && valid_velocity(m.velocity) &&
@@ -101,9 +103,9 @@ bool valid(const FireEvent& m) {
            valid_direction(m.direction) && valid_player_or_none(m.claimed_target) && m.claimed_target != m.shooter;
 }
 bool valid(const DamageEvent& m) {
-    return valid_player(m.attacker) && valid_player(m.target) && m.attacker != m.target;
+    return valid_player_or_none(m.attacker) && valid_player(m.target);
 }
-bool valid(const DeathEvent& m) { return valid_player(m.victim) && valid_player_or_none(m.killer) && valid_weapon(m.weapon); }
+bool valid(const DeathEvent& m) { return valid_player(m.victim) && valid_player_or_none(m.killer) && valid_weapon_or_none(m.weapon); }
 bool valid(const RespawnEvent& m) {
     return valid_player(m.player) && m.spawn_point < kMaxSpawnPoints && valid_position(m.position) &&
            valid_angle(m.yaw);
@@ -120,6 +122,20 @@ bool valid(const LoadoutState& m) {
     return valid_player(m.player_id) && valid_weapon_or_none(m.primary_weapon) &&
            valid_weapon_or_none(m.secondary_weapon) && valid_tactical_flags(m.tactical_flags) &&
            m.last_result <= static_cast<uint8_t>(LoadoutResult::NotAliveOrEnded);
+}
+bool valid(const PlayerRoster& m) {
+    if (m.players.size() > kMaxPlayers) return false;
+    bool seen[kMaxPlayers] = {};
+    for (const auto& entry : m.players) {
+        if (!valid_player(entry.player_id) || !valid_name(entry.name) || seen[entry.player_id]) return false;
+        seen[entry.player_id] = true;
+    }
+    return true;
+}
+bool valid(const BlastEvent& m) {
+    return valid_player_or_none(m.attacker) && valid_player_or_none(m.target) && valid_weapon_or_none(m.weapon) &&
+           (m.flags & ~uint8_t(kBlastFlagClaim | kBlastFlagVisualOnly)) == 0 && valid_position(m.origin) &&
+           finite(m.damage) && m.damage >= 0.0f && m.damage <= 250.0f;
 }
 
 // ---- escrita -------------------------------------------------------------------------------
@@ -141,6 +157,9 @@ void write(ByteWriter& w, const Welcome& m) {
     w.u8(m.max_players);
     w.u16(m.tick_rate_hz);
     w.u16(m.snapshot_rate_hz);
+    w.u8(m.game_mode);
+    w.u8(m.arena_id);
+    w.u32(m.available_weapon_mask);
 }
 void write(ByteWriter& w, const Reject& m) { w.u8(static_cast<uint8_t>(m.reason)); }
 void write(ByteWriter& w, const MatchStart& m) {
@@ -148,6 +167,8 @@ void write(ByteWriter& w, const MatchStart& m) {
     w.u16(m.time_limit_s);
     w.u16(m.kill_limit);
     w.u8(m.arena_id);
+    w.u8(m.game_mode);
+    w.u32(m.available_weapon_mask);
 }
 void write(ByteWriter& w, const MatchEnd& m) { w.u8(m.winner); }
 void write(ByteWriter& w, const PlayerState& m) {
@@ -233,6 +254,23 @@ void write(ByteWriter& w, const LoadoutState& m) {
     w.u16(m.kit_cost);
     w.u16(m.buy_ticks_left);
 }
+void write(ByteWriter& w, const PlayerRoster& m) {
+    w.u8(static_cast<uint8_t>(m.players.size()));
+    for (const auto& entry : m.players) {
+        w.u8(entry.player_id);
+        w.u8(static_cast<uint8_t>(entry.name.size()));
+        w.bytes({reinterpret_cast<const uint8_t*>(entry.name.data()), entry.name.size()});
+    }
+}
+void write(ByteWriter& w, const BlastEvent& m) {
+    w.u32(m.client_tick);
+    w.u8(m.attacker);
+    w.u8(m.target);
+    w.u8(m.weapon);
+    w.u8(m.flags);
+    put(w, m.origin);
+    w.f32(m.damage);
+}
 
 // ---- leitura -------------------------------------------------------------------------------
 // Cada read() devolve false para conteúdo estruturalmente impossível (contagem acima do teto etc.).
@@ -260,6 +298,9 @@ bool read(ByteReader& r, Welcome& m) {
     m.max_players = r.u8();
     m.tick_rate_hz = r.u16();
     m.snapshot_rate_hz = r.u16();
+    m.game_mode = r.u8();
+    m.arena_id = r.u8();
+    m.available_weapon_mask = r.u32();
     return true;
 }
 bool read(ByteReader& r, Reject& m) {
@@ -271,6 +312,8 @@ bool read(ByteReader& r, MatchStart& m) {
     m.time_limit_s = r.u16();
     m.kill_limit = r.u16();
     m.arena_id = r.u8();
+    m.game_mode = r.u8();
+    m.available_weapon_mask = r.u32();
     return true;
 }
 bool read(ByteReader& r, MatchEnd& m) {
@@ -379,6 +422,32 @@ bool read(ByteReader& r, LoadoutState& m) {
     m.buy_ticks_left = r.u16();
     return true;
 }
+bool read(ByteReader& r, PlayerRoster& m) {
+    const uint8_t count = r.u8();
+    if (count > kMaxPlayers) return false;
+    m.players.clear();
+    m.players.reserve(count);
+    for (uint8_t i = 0; i < count; ++i) {
+        PlayerRosterEntry entry;
+        entry.player_id = r.u8();
+        const uint8_t len = r.u8();
+        if (len > kMaxNameLength) return false;
+        auto s = r.bytes(len);
+        entry.name.assign(reinterpret_cast<const char*>(s.data()), s.size());
+        m.players.push_back(std::move(entry));
+    }
+    return true;
+}
+bool read(ByteReader& r, BlastEvent& m) {
+    m.client_tick = r.u32();
+    m.attacker = r.u8();
+    m.target = r.u8();
+    m.weapon = r.u8();
+    m.flags = r.u8();
+    m.origin = get_vec3(r);
+    m.damage = r.f32();
+    return true;
+}
 
 template <class T>
 DecodeResult finish(ByteReader& r) {
@@ -452,6 +521,8 @@ DecodeResult decode(std::span<const uint8_t> in) {
         case MessageType::Kick: return finish<Kick>(r);
         case MessageType::LoadoutRequest: return finish<LoadoutRequest>(r);
         case MessageType::LoadoutState: return finish<LoadoutState>(r);
+        case MessageType::PlayerRoster: return finish<PlayerRoster>(r);
+        case MessageType::BlastEvent: return finish<BlastEvent>(r);
     }
     return {std::nullopt, DecodeError::UnknownType};
 }

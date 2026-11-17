@@ -1123,7 +1123,7 @@ public:
         presents_++;
         web_stats::g_presents.store(presents_, std::memory_order_relaxed);
 
-        // Rebuild scaled render targets if browser window resized
+        // Rebuild scaled render targets if browser window resized or render_percent changed
         float want = app::RenderScale(guest_h_);
         if (std::fabs(want - scale_) > 1e-3f) {
             for (const auto& [k, tg] : targets_) {
@@ -1132,6 +1132,9 @@ public:
             }
             targets_.clear();
             scale_ = want;
+        }
+        if ((presents_ % 60u) == 0u) {
+            ReleaseOldTextures();
         }
     }
 
@@ -1226,6 +1229,7 @@ private:
         bool drawn = false;
         uint64_t sig = 0;
         uint64_t epoch = 0;
+        uint64_t last_frame = 0;
         std::vector<uint8_t> read;
     };
 
@@ -1245,6 +1249,41 @@ private:
         const size_t pos = writer_.Begin(kOpDestroyTexture);
         writer_.U32(id);
         writer_.End(pos);
+    }
+
+    // Varre periodicamente texturas e render targets antigos entre transições de fase/vídeo XMV
+    // evitando acúmulo de VRAM no WebGPU (espelha D3D12Backend::ReleaseOldTextures).
+    void ReleaseOldTextures() {
+        size_t swept = 0;
+        if (textures_.size() > 768u) {
+            for (auto it = textures_.begin(); it != textures_.end();) {
+                const uint64_t lf = it->second.last_frame;
+                if (presents_ > lf && (presents_ - lf) > 600u) {
+                    DestroyTex(it->second.id);
+                    it = textures_.erase(it);
+                    ++swept;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        if (targets_.size() > 32u) {
+            for (auto it = targets_.begin(); it != targets_.end();) {
+                const uint64_t lf = it->second.last_frame;
+                if (presents_ > lf && (presents_ - lf) > 1200u) {
+                    DestroyTex(it->second.id);
+                    if (it->second.feedback_id) DestroyTex(it->second.feedback_id);
+                    it = targets_.erase(it);
+                    ++swept;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        if (swept >= 32u) {
+            LOGR("gpu_webgpu: ReleaseOldTextures liberou %zu recursos antigos (restantes tex=%zu rt=%zu)",
+                 swept, textures_.size(), targets_.size());
+        }
     }
 
     void FlushBatch(bool wait_gpu) {
@@ -1303,7 +1342,9 @@ private:
         if (!gw || !gh) return nullptr;
         const uint32_t data_va = mem::VirtualFromPhysical(s.data);
         auto it = targets_.find(SizedTargetKey(data_va, depth, gw, gh));
-        return it != targets_.end() ? &it->second : nullptr;
+        if (it == targets_.end()) return nullptr;
+        it->second.last_frame = presents_ + 1u;
+        return &it->second;
     }
 
     Target* EnsureTarget(const Surface& s, bool depth) {
@@ -1314,7 +1355,10 @@ private:
         const uint32_t data_va = mem::VirtualFromPhysical(s.data);
         const uint64_t key = SizedTargetKey(data_va, depth, gw, gh);
         auto it = targets_.find(key);
-        if (it != targets_.end()) return &it->second;
+        if (it != targets_.end()) {
+            it->second.last_frame = presents_ + 1u;
+            return &it->second;
+        }
 
         uint32_t w = std::max(1u, uint32_t(std::lround(float(gw) * scale_)));
         uint32_t h = std::max(1u, uint32_t(std::lround(float(gh) * scale_)));
@@ -1326,6 +1370,7 @@ private:
         t.w = w;
         t.h = h;
         t.depth = depth;
+        t.last_frame = presents_ + 1u;
 
         const size_t pos = writer_.Begin(kOpCreateTexture);
         writer_.U32(t.id);
@@ -1452,6 +1497,7 @@ private:
         auto tit = targets_.find(SizedTargetKey(d.data, fi.depth, d.width, d.height));
         if (tit != targets_.end() && !d.cube && d.depth == 1 && !fi.compressed) {
             Target& tg = tit->second;
+            tg.last_frame = presents_ + 1u;
             if (&tg == draw_ds) return 0u;
             is_rt = true;
             info.flags |= kTexTarget;
