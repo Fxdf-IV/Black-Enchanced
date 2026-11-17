@@ -468,20 +468,19 @@ X86_FUNC(sub_001BD3F0) {
     const float zoom = (std::isfinite(raw_zoom) && raw_zoom >= 1.0f && raw_zoom <= 12.0f) ? raw_zoom : 1.0f;
     const float ads_scale = (zoom > 1.05f) ? (cfg.ads_sens_mult / zoom) : 1.0f;
 
-    const float sy = black::RF32(base, ctrl_va + black::kControlSensYaw);
-    const float sp = black::RF32(base, ctrl_va + black::kControlSensPitch);
-    const float yaw_sign = (std::isfinite(sy) && sy < 0.0f) ? -1.0f : 1.0f;
-    const float pitch_sign = (std::isfinite(sp) && sp < 0.0f) ? -1.0f : 1.0f;
-    const bool guest_invert_y = (black::R8(base, ctrl_va + 0x101u) != 0);
-    const float y_inv = (cfg.invert_y != guest_invert_y) ? -1.0f : 1.0f;
+    // Sinais fixos e independentes do perfil salvo do jogo (sensibilidade negativa / "inverter Y" do
+    // menu original variam entre saves): mouse para a direita vira a câmera para a direita e mouse
+    // para baixo olha para baixo; só a opção "Inverter Eixo Y" da página inverte o pitch.
+    const float y_inv = cfg.invert_y ? -1.0f : 1.0f;
 
     float yaw = black::RF32(base, ctrl_va + black::kControlAngles + 8u);
     float pitch = black::RF32(base, ctrl_va + black::kControlAngles + 12u);
     if (!std::isfinite(yaw)) yaw = 0.0f;
     if (!std::isfinite(pitch)) pitch = 0.0f;
 
-    yaw += yaw_sign * mdx * cfg.mouse_sens * ads_scale;
-    pitch += pitch_sign * mdy * cfg.mouse_sens * ads_scale * y_inv;
+    // Convenção do motor: yaw positivo vira para a esquerda; pitch positivo olha para baixo.
+    yaw -= mdx * cfg.mouse_sens * ads_scale;
+    pitch += mdy * cfg.mouse_sens * ads_scale * y_inv;
 
     while (yaw >= 360.0f) yaw -= 360.0f;
     while (yaw < -180.0f) yaw += 360.0f;
