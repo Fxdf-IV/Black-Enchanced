@@ -135,6 +135,10 @@ def build_toolchain(repo_root: Path, force: bool = False) -> tuple[Path, Path]:
         f"-I{zydis_dir / 'src'}",
         f"-I{zydis_dir / 'dependencies' / 'zycore' / 'include'}",
     ]
+    if sys.platform.startswith("linux"):
+        # Com -std=c11 o glibc esconde PTHREAD_MUTEX_RECURSIVE (usado pelo Zydis/zycore);
+        # _GNU_SOURCE o expõe. Sem efeito necessário em Windows/macOS.
+        c_flags.append("-D_GNU_SOURCE")
     c_sources = sorted((zydis_dir / "src").rglob("*.c")) + sorted(
         (zydis_dir / "dependencies" / "zycore" / "src").rglob("*.c")
     )
