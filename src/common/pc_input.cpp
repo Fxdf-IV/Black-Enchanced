@@ -151,6 +151,9 @@ void SetEnhancedConfig(const EnhancedConfig& cfg) {
     w.enhanced.mouse_sens = std::clamp(w.enhanced.mouse_sens, 0.01f, 0.6f);
     w.enhanced.ads_sens_mult = std::clamp(w.enhanced.ads_sens_mult, 0.1f, 2.0f);
     w.enhanced.fov_deg = std::clamp(w.enhanced.fov_deg, 55.0f, 115.0f);
+    w.enhanced.player_damage_mult = std::clamp(w.enhanced.player_damage_mult, 0.5f, 3.0f);
+    w.enhanced.enemy_damage_mult = std::clamp(w.enhanced.enemy_damage_mult, 0.25f, 2.0f);
+    w.enhanced.recoil_mult = std::clamp(w.enhanced.recoil_mult, 0.1f, 1.5f);
     if (!w.enhanced.mouse_direct) {
         w.direct_dx = 0.0f;
         w.direct_dy = 0.0f;
@@ -240,17 +243,17 @@ void PollPcPad(int port, input::Pad& pad) {
         if (KeyDown(VK_RIGHT)) pad.buttons |= 0x08;
         if (KeyDown(VK_RETURN)) pad.buttons |= 0x10;   // Start
         if (KeyDown(VK_TAB)) pad.buttons |= 0x20;      // Back
-        if (KeyDown(VK_LSHIFT)) pad.buttons |= 0x40;   // Left Thumb
-        if (KeyDown(VK_CONTROL)) pad.buttons |= 0x80;  // Right Thumb
+        if (KeyDown(VK_LSHIFT)) pad.buttons |= 0x40;   // Left Thumb (Sprint)
+        if (KeyDown('V')) pad.buttons |= 0x80;         // Right Thumb (Melee coronhada)
 
-        if (KeyDown(VK_SPACE)) pad.analog[0] = 0xFF;               // A
-        if (KeyDown('C') || KeyDown(VK_BACK)) pad.analog[1] = 0xFF; // B
-        if (KeyDown('R')) pad.analog[2] = 0xFF;                    // X (Reload)
-        if (KeyDown('E') || KeyDown('1')) pad.analog[3] = 0xFF;    // Y (Weapon swap)
-        if (KeyDown('G')) pad.analog[4] = 0xFF;                    // Black (Grenade / Fire mode)
-        if (KeyDown('Q')) pad.analog[5] = 0xFF;                    // White (Fire mode / Action)
-        if (KeyDown('V') || KeyDown(VK_RBUTTON)) pad.analog[6] = 0xFF; // LT (Aim / Zoom)
-        if (KeyDown('F') || KeyDown(VK_LBUTTON)) pad.analog[7] = 0xFF; // RT (Fire)
+        if (KeyDown(VK_SPACE)) pad.analog[0] = 0xFF;                           // A (Pulo / Confirmar)
+        if (KeyDown('C') || KeyDown(VK_CONTROL) || KeyDown(VK_BACK)) pad.analog[1] = 0xFF; // B (Agachar / Cancelar)
+        if (KeyDown('R') || KeyDown('E') || KeyDown('F')) pad.analog[2] = 0xFF; // X (Recarregar / Interagir)
+        if (KeyDown('Y') || KeyDown('1') || KeyDown('2')) pad.analog[3] = 0xFF; // Y (Troca de arma)
+        if (KeyDown('G')) pad.analog[4] = 0xFF;                                // Black (Granada)
+        if (KeyDown('Q')) pad.analog[5] = 0xFF;                                // White (Modo disparo / Silenciador)
+        if (KeyDown(VK_RBUTTON)) pad.analog[6] = 0xFF;                         // LT (Mirar ADS)
+        if (KeyDown(VK_LBUTTON)) pad.analog[7] = 0xFF;                         // RT (Atirar)
 
         int lx = pad.lx;
         int ly = pad.ly;
@@ -290,14 +293,16 @@ void PollPcPad(int port, input::Pad& pad) {
                 if (GetCursorPos(&cur)) {
                     const int dx = cur.x - screen_center.x;
                     const int dy = cur.y - screen_center.y;
-                    if (GetEnhancedConfig().mouse_direct) {
+                    const auto cfg = GetEnhancedConfig();
+                    if (cfg.mouse_direct) {
                         auto& w = WebInput();
                         std::lock_guard<std::mutex> lk(w.mu);
                         w.direct_dx += static_cast<float>(dx);
                         w.direct_dy += static_cast<float>(dy);
                     } else {
+                        const int y_mult = cfg.invert_y ? 900 : -900;
                         rx += std::clamp(dx * 900, -32767, 32767);
-                        ry += std::clamp(-dy * 900, -32767, 32767);
+                        ry += std::clamp(dy * y_mult, -32767, 32767);
                     }
                     SetCursorPos(screen_center.x, screen_center.y);
                 }
@@ -362,17 +367,17 @@ void PollPcPad(int port, input::Pad& pad) {
     if (km & kWebKeyRight) pad.buttons |= 0x08;
     if (km & kWebKeyStart) pad.buttons |= 0x10;
     if (km & kWebKeyBack) pad.buttons |= 0x20;
-    if (km & kWebKeyLShift) pad.buttons |= 0x40;
-    if (km & (kWebKeyCtrl | kWebKeyMelee)) pad.buttons |= 0x80;
+    if (km & kWebKeyLShift) pad.buttons |= 0x40;                           // Left Thumb (Sprint)
+    if (km & (kWebKeyV | kWebKeyMelee)) pad.buttons |= 0x80;               // Right Thumb (Melee coronhada)
 
-    if (km & kWebKeySpace) pad.analog[0] = 0xFF;               // A
-    if (km & kWebKeyC) pad.analog[1] = 0xFF;                   // B
-    if (km & kWebKeyR) pad.analog[2] = 0xFF;                   // X
-    if (km & (kWebKeyE | kWebKeyY)) pad.analog[3] = 0xFF;      // Y
-    if (km & kWebKeyG) pad.analog[4] = 0xFF;                   // Black
-    if (km & kWebKeyQ) pad.analog[5] = 0xFF;                   // White
-    if ((km & kWebKeyV) || (mb & 2u)) pad.analog[6] = 0xFF;    // LT
-    if ((km & kWebKeyF) || (mb & 1u)) pad.analog[7] = 0xFF;    // RT
+    if (km & kWebKeySpace) pad.analog[0] = 0xFF;                           // A (Pulo / Ação)
+    if (km & (kWebKeyC | kWebKeyCtrl)) pad.analog[1] = 0xFF;               // B (Agachar / Cancelar)
+    if (km & (kWebKeyR | kWebKeyE | kWebKeyF)) pad.analog[2] = 0xFF;       // X (Recarregar / Interagir / Pegar)
+    if (km & kWebKeyY) pad.analog[3] = 0xFF;                               // Y (Troca de arma)
+    if (km & kWebKeyG) pad.analog[4] = 0xFF;                               // Black (Granada)
+    if (km & kWebKeyQ) pad.analog[5] = 0xFF;                               // White (Modo disparo / Silenciador)
+    if (mb & 2u) pad.analog[6] = 0xFF;                                     // LT (Mirar ADS)
+    if (mb & 1u) pad.analog[7] = 0xFF;                                     // RT (Atirar)
 
     int lx = gp_conn ? gp_lx : pad.lx;
     int ly = gp_conn ? gp_ly : pad.ly;
@@ -390,8 +395,15 @@ void PollPcPad(int port, input::Pad& pad) {
         if (km & kWebKeyD) pad.buttons |= 0x08;
     }
 
+    if (km & kWebKeyLookLeft) rx -= 24000;
+    if (km & kWebKeyLookRight) rx += 24000;
+    if (km & kWebKeyLookUp) ry += 24000;
+    if (km & kWebKeyLookDown) ry -= 24000;
+
+    const auto cfg = GetEnhancedConfig();
+    const float y_mult = cfg.invert_y ? 750.0f : -750.0f;
     rx += static_cast<int>(std::clamp(mdx * 750.0f, -32767.0f, 32767.0f));
-    ry += static_cast<int>(std::clamp(-mdy * 750.0f, -32767.0f, 32767.0f));
+    ry += static_cast<int>(std::clamp(mdy * y_mult, -32767.0f, 32767.0f));
 
     pad.lx = ClampAxis(lx);
     pad.ly = ClampAxis(ly);
@@ -399,6 +411,25 @@ void PollPcPad(int port, input::Pad& pad) {
     pad.ry = ClampAxis(ry);
 #else
     (void)pad;
+#endif
+}
+
+bool ShouldSkipCurrentMovie() {
+#if defined(__EMSCRIPTEN__)
+    auto& w = WebInput();
+    std::lock_guard<std::mutex> lock(w.mu);
+    const bool skip = (w.key_mask & (kWebKeySpace | kWebKeyStart | kWebKeyBack | kWebKeyC | kWebKeyE | kWebKeyF)) != 0 ||
+                      (w.mouse_buttons & 1u) != 0;
+    return skip;
+#elif defined(_WIN32)
+    HWND hwnd = static_cast<HWND>(app::Window());
+    if (hwnd && GetForegroundWindow() == hwnd) {
+        return KeyDown(VK_SPACE) || KeyDown(VK_RETURN) || KeyDown(VK_ESCAPE) || KeyDown(VK_LBUTTON) ||
+               KeyDown('E') || KeyDown('F') || KeyDown('C');
+    }
+    return false;
+#else
+    return false;
 #endif
 }
 

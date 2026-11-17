@@ -35,6 +35,13 @@ const WEB_KEY_MAP = Object.freeze({
   KeyQ: 1 << 17,
   KeyV: 1 << 18,
   KeyF: 1 << 19,
+  KeyY: 1 << 20,
+  Digit1: 1 << 20,
+  Digit2: 1 << 20,
+  KeyJ: 1 << 22,
+  KeyL: 1 << 23,
+  KeyI: 1 << 24,
+  KeyK: 1 << 25,
 });
 const WEB_KEY_Y = 1 << 20;
 
@@ -44,6 +51,15 @@ const DISCRETE_LATCH_CODES = new Set([
   "Space",
   "Backspace",
   "KeyC",
+  "KeyE",
+  "KeyF",
+  "KeyR",
+  "KeyG",
+  "KeyQ",
+  "KeyV",
+  "KeyY",
+  "Digit1",
+  "Digit2",
   "ArrowUp",
   "ArrowDown",
   "ArrowLeft",
@@ -91,8 +107,15 @@ function loadEnhancedPrefs() {
     mouseSens: 0.085,
     adsSensMult: 0.7,
     invertY: false,
+    skipIntro: true,
     fovDeg: 88,
     hitmarker: true,
+    renderPercent: 100,
+    overhaulEnabled: false,
+    playerDamageMult: 1.35,
+    enemyDamageMult: 1.0,
+    recoilMult: 0.6,
+    ammoBonusEnabled: true,
   };
   try {
     const raw = localStorage.getItem("black_enhanced_prefs_v1");
@@ -130,6 +153,8 @@ const state = {
   roomRules: { csLoadout: true, fixedBudget: false, budgetCap: 8000 },
   lastRebuyKit: null,
   lastLoadoutSnapshotKey: "",
+  lastBuyHeaderKey: "",
+  pendingBuyCheck: null,
 };
 
 const engine = {
@@ -153,6 +178,9 @@ const engine = {
   mouseButtons: 0,
   pendingDx: 0,
   pendingDy: 0,
+  lastMouseX: 0,
+  lastMouseY: 0,
+  hasLastMousePos: false,
   wheelPulseUntil: 0,
   wasmClientConfiguredPeer: 0,
   lastHelloRetryMs: 0,
@@ -296,7 +324,7 @@ function setOverlay(name) {
   }
   if (name === "buy") {
     refreshCatalogFromWasm();
-    renderBuyMenu();
+    renderBuyMenu(true);
   }
   if (name === "options") {
     syncEnhancedControlsUi();
@@ -468,15 +496,30 @@ async function copyInviteLink(preferOptionsModal = false) {
 function pushEnhancedConfigToWasm() {
   saveEnhancedPrefs(state.enhanced);
   const mod = engine.module;
-  if (!mod || !mod._BlackWebSetEnhancedConfig) return;
-  mod._BlackWebSetEnhancedConfig(
-    state.enhanced.mouseDirect ? 1 : 0,
-    Number(state.enhanced.mouseSens),
-    Number(state.enhanced.adsSensMult),
-    state.enhanced.invertY ? 1 : 0,
-    Number(state.enhanced.fovDeg),
-    state.enhanced.hitmarker ? 1 : 0
-  );
+  if (!mod) return;
+    if (mod._BlackWebSetEnhancedConfig) {
+    mod._BlackWebSetEnhancedConfig(
+      state.enhanced.mouseDirect ? 1 : 0,
+      Number(state.enhanced.mouseSens),
+      Number(state.enhanced.adsSensMult),
+      state.enhanced.invertY ? 1 : 0,
+      Number(state.enhanced.fovDeg),
+      state.enhanced.hitmarker ? 1 : 0,
+      state.enhanced.skipIntro !== false ? 1 : 0
+    );
+  }
+  if (mod._BlackWebSetRenderPercent) {
+    mod._BlackWebSetRenderPercent(Math.round(Number(state.enhanced.renderPercent || 100)));
+  }
+  if (mod._BlackWebSetOverhaulConfig) {
+    mod._BlackWebSetOverhaulConfig(
+      state.enhanced.overhaulEnabled ? 1 : 0,
+      Number(state.enhanced.playerDamageMult || 1.35),
+      Number(state.enhanced.enemyDamageMult || 1.0),
+      Number(state.enhanced.recoilMult || 0.6),
+      state.enhanced.ammoBonusEnabled ? 1 : 0
+    );
+  }
 }
 
 function syncEnhancedControlsUi() {
@@ -489,8 +532,19 @@ function syncEnhancedControlsUi() {
   const adsv = document.getElementById("opt-ads-sens-val");
   const fov = document.getElementById("opt-fov");
   const fovv = document.getElementById("opt-fov-val");
+  const rp = document.getElementById("opt-render-percent");
+  const rpv = document.getElementById("opt-render-percent-val");
   const iy = document.getElementById("opt-invert-y");
+  const si = document.getElementById("opt-skip-intro");
   const hm = document.getElementById("opt-hitmarker");
+  const ov = document.getElementById("opt-overhaul-enabled");
+  const pd = document.getElementById("opt-player-dmg");
+  const pdv = document.getElementById("opt-player-dmg-val");
+  const ed = document.getElementById("opt-enemy-dmg");
+  const edv = document.getElementById("opt-enemy-dmg-val");
+  const rm = document.getElementById("opt-recoil-mult");
+  const rmv = document.getElementById("opt-recoil-mult-val");
+  const ab = document.getElementById("opt-ammo-bonus");
 
   if (launchEnhanced) launchEnhanced.checked = Boolean(c.mouseDirect);
   if (md) md.checked = Boolean(c.mouseDirect);
@@ -500,16 +554,27 @@ function syncEnhancedControlsUi() {
   if (adsv) adsv.textContent = `${Number(c.adsSensMult).toFixed(2)}x`;
   if (fov) fov.value = String(c.fovDeg);
   if (fovv) fovv.textContent = `${Math.round(c.fovDeg)}°`;
+  if (rp) rp.value = String(c.renderPercent || 100);
+  if (rpv) rpv.textContent = `${Math.round(Number(c.renderPercent || 100))}%`;
   if (iy) iy.checked = Boolean(c.invertY);
+  if (si) si.checked = Boolean(c.skipIntro !== false);
   if (hm) hm.checked = Boolean(c.hitmarker);
+  if (ov) ov.checked = Boolean(c.overhaulEnabled);
+  if (pd) pd.value = String(c.playerDamageMult ?? 1.35);
+  if (pdv) pdv.textContent = `${Number(c.playerDamageMult ?? 1.35).toFixed(2)}x`;
+  if (ed) ed.value = String(c.enemyDamageMult ?? 1.0);
+  if (edv) edv.textContent = `${Number(c.enemyDamageMult ?? 1.0).toFixed(2)}x`;
+  if (rm) rm.value = String(c.recoilMult ?? 0.6);
+  if (rmv) rmv.textContent = `${Number(c.recoilMult ?? 0.6).toFixed(2)}x`;
+  if (ab) ab.checked = Boolean(c.ammoBonusEnabled);
 }
 
 function refreshCatalogFromWasm() {
   const mod = engine.module;
   if (!mod || !mod._BlackWebGetWeaponsJson || !engine.weaponsPtr) return;
-  const len = mod._BlackWebGetWeaponsJson(engine.weaponsPtr, 4096);
-  if (len <= 0) return;
   try {
+    const len = mod._BlackWebGetWeaponsJson(engine.weaponsPtr, 4096);
+    if (len <= 0) return;
     const parsed = JSON.parse(mod.UTF8ToString(engine.weaponsPtr, len));
     if (Array.isArray(parsed.weapons) && parsed.weapons.length > 0) {
       state.catalog = parsed;
@@ -706,7 +771,35 @@ function submitLoadoutPurchase(nextPrimary, nextSecondary, nextTactical) {
   }
   if (!engine.module?._BlackWebBuyLoadout) return;
 
+  const before = currentLoadoutNumbers();
   const ok = engine.module._BlackWebBuyLoadout(nextPrimary & 0xff, nextSecondary & 0xff, nextTactical & 0xff);
+  if (state.role === "client") {
+    if (!ok) {
+      state.pendingBuyCheck = null;
+      if (feedback) {
+        feedback.textContent = "Falha ao enviar pedido ao host.";
+        feedback.dataset.tone = "err";
+      }
+      return;
+    }
+    state.pendingBuyCheck = {
+      credits: before.credits,
+      primary: before.primary,
+      secondary: before.secondary,
+      tactical: before.tactical,
+      sentAt: performance.now(),
+    };
+    if (feedback) {
+      feedback.textContent = "Pedido enviado ao host...";
+      feedback.dataset.tone = "warn";
+    }
+    setTimeout(() => {
+      pollWasmStatus();
+      renderBuyMenu(false);
+    }, 90);
+    return;
+  }
+
   setTimeout(() => {
     pollWasmStatus();
     const cur = currentLoadoutNumbers();
@@ -714,54 +807,11 @@ function submitLoadoutPurchase(nextPrimary, nextSecondary, nextTactical) {
       feedback.textContent = BUY_RESULT_LABELS[cur.lastResult] || (ok ? BUY_RESULT_LABELS[0] : "Compra recusada.");
       feedback.dataset.tone = ok && cur.lastResult === 0 ? "ok" : "err";
     }
-    renderBuyMenu();
+    renderBuyMenu(true);
   }, 50);
 }
 
-function buildBuyButton({ hotkey, name, meta, price, equipped, affordable, onClick }) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = `buy-item${equipped ? " equipped" : ""}`;
-  btn.disabled = !equipped && !affordable;
-  if (hotkey) btn.dataset.buyHotkey = String(hotkey);
-
-  const left = document.createElement("div");
-  left.className = "buy-item-left";
-  const title = document.createElement("div");
-  title.className = "buy-item-name";
-  if (hotkey) {
-    const tag = document.createElement("span");
-    tag.className = "hotkey-tag";
-    tag.textContent = String(hotkey);
-    title.appendChild(tag);
-  }
-  title.append(name);
-
-  const sub = document.createElement("div");
-  sub.className = "buy-item-meta";
-  sub.textContent = meta;
-  left.append(title, sub);
-
-  const right = document.createElement("span");
-  right.className = "buy-item-price";
-  right.textContent = equipped ? "EQUIPADO" : price === 0 ? "GRÁTIS" : `$${price}`;
-
-  btn.append(left, right);
-  btn.addEventListener("click", (e) => {
-    e.currentTarget?.blur?.();
-    onClick();
-  });
-  return btn;
-}
-
-function renderBuyMenu() {
-  if (!isMultiplayerActive()) return;
-  const colSec = document.getElementById("buy-col-secondary");
-  const colPri = document.getElementById("buy-col-primary");
-  const colTac = document.getElementById("buy-col-tactical");
-  if (!colSec || !colPri || !colTac) return;
-
-  const cur = currentLoadoutNumbers();
+function updateBuyMenuHeader(cur) {
   const creditsEl = document.getElementById("buy-credits-val");
   const capEl = document.getElementById("buy-cap-val");
   const kitEl = document.getElementById("buy-kit-cost-val");
@@ -782,27 +832,99 @@ function renderBuyMenu() {
   if (sumEl) {
     sumEl.innerHTML = `Primária: <strong>${weaponNameById(cur.primary)}</strong><br />Secundária: <strong>${weaponNameById(cur.secondary)}</strong><br />Proteção: <strong>${extras.length ? extras.join(" + ") : "Padrão"}</strong>`;
   }
+}
+
+const BLACK_LEVEL_NAMES = {
+  0: "Missão 1 · Streets",
+  1: "Missão 2 · Border",
+  2: "Missão 3 · Foundry",
+  3: "Missão 4 · Asylum",
+  4: "Missão 5 · Dockyard",
+  5: "Missão 6 · Bridge",
+  6: "Missão 7 · Gulag",
+  7: "Missão 8 · Spetriniv",
+};
+
+function levelLabel(id) {
+  return BLACK_LEVEL_NAMES[Number(id)] || `Fase #${Number(id) || 0}`;
+}
+
+function buildBuyButton({ hotkey, name, meta, price, equipped, affordable, available = true, onClick }) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `buy-item${equipped ? " equipped" : ""}${available ? "" : " unavailable"}`;
+  btn.disabled = !available || (!equipped && !affordable);
+  if (hotkey && available) btn.dataset.buyHotkey = String(hotkey);
+
+  const left = document.createElement("div");
+  left.className = "buy-item-left";
+  const title = document.createElement("div");
+  title.className = "buy-item-name";
+  if (hotkey) {
+    const tag = document.createElement("span");
+    tag.className = "hotkey-tag";
+    tag.textContent = String(hotkey);
+    title.appendChild(tag);
+  }
+  title.append(name);
+
+  const sub = document.createElement("div");
+  sub.className = "buy-item-meta";
+  sub.textContent = meta;
+  left.append(title, sub);
+
+  const right = document.createElement("span");
+  right.className = "buy-item-price";
+  right.textContent = !available ? "N/D" : equipped ? "EQUIPADO" : price === 0 ? "GRÁTIS" : `$${price}`;
+
+  btn.append(left, right);
+  btn.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    if (available) onClick();
+  });
+  return btn;
+}
+
+function renderBuyMenu(forceButtons = false) {
+  if (!isMultiplayerActive()) return;
+  const colSec = document.getElementById("buy-col-secondary");
+  const colPri = document.getElementById("buy-col-primary");
+  const colTac = document.getElementById("buy-col-tactical");
+  if (!colSec || !colPri || !colTac) return;
+
+  const cur = currentLoadoutNumbers();
+  updateBuyMenuHeader(cur);
 
   const windowOpen = cur.buyTicksLeft > 0;
-  colSec.innerHTML = "";
-  colPri.innerHTML = "";
-  colTac.innerHTML = "";
+  const availMask = state.catalog.availableMask ?? 0xffffffff;
+  const engCnt = state.catalog.engineWeaponCount ?? 0;
+  const btnKey = `${cur.credits}-${cur.primary}-${cur.secondary}-${cur.tactical}-${cur.lastResult}-${windowOpen ? 1 : 0}-${cur.fixedBudget ? 1 : 0}-${state.catalog.weapons.length}-${availMask}-${engCnt}`;
+  state.lastBuyHeaderKey = `${btnKey}-${Math.floor((cur.buyTicksLeft || 0) / 30)}`;
+  if (!forceButtons && btnKey === state.lastLoadoutSnapshotKey && colPri.childElementCount > 0) {
+    return;
+  }
+  state.lastLoadoutSnapshotKey = btnKey;
+  colSec.replaceChildren();
+  colPri.replaceChildren();
+  colTac.replaceChildren();
 
   const secondaries = state.catalog.weapons.filter((w) => w.slot === 0);
   const primaries = state.catalog.weapons.filter((w) => w.slot !== 0);
 
   secondaries.forEach((w, idx) => {
     const equipped = cur.secondary === w.id;
+    const available = w.available !== false;
     const curSecPrice = state.catalog.weapons.find((x) => x.id === cur.secondary)?.price || 0;
-    const affordable = windowOpen && (cur.fixedBudget ? cur.kitCost - curSecPrice + w.price <= cur.maxCredits : w.price <= cur.credits);
+    const affordable = available && windowOpen && (cur.fixedBudget ? cur.kitCost - curSecPrice + w.price <= cur.maxCredits : w.price <= cur.credits);
     colSec.appendChild(
       buildBuyButton({
         hotkey: idx < 3 ? String(idx + 1) : "",
         name: w.name,
-        meta: `DMG ${w.damage} · MAG ${w.mag}`,
+        meta: available ? `DMG ${w.damage} · MAG ${w.mag}${w.tag ? ` · ${w.tag}` : ""}` : "Indisponível nesta fase",
         price: w.price,
         equipped,
         affordable,
+        available,
         onClick: () => submitLoadoutPurchase(cur.primary, w.id, cur.tactical),
       })
     );
@@ -810,16 +932,18 @@ function renderBuyMenu() {
 
   primaries.forEach((w, idx) => {
     const equipped = cur.primary === w.id;
+    const available = w.available !== false;
     const curPrimPrice = cur.primary !== NO_WEAPON ? state.catalog.weapons.find((x) => x.id === cur.primary)?.price || 0 : 0;
-    const affordable = windowOpen && (cur.fixedBudget ? cur.kitCost - curPrimPrice + w.price <= cur.maxCredits : w.price <= cur.credits);
+    const affordable = available && windowOpen && (cur.fixedBudget ? cur.kitCost - curPrimPrice + w.price <= cur.maxCredits : w.price <= cur.credits);
     colPri.appendChild(
       buildBuyButton({
         hotkey: idx < 6 ? String(idx + 4) : "",
         name: w.name,
-        meta: `DMG ${w.damage} · ${w.mag} balas · ${w.range}m`,
+        meta: available ? `DMG ${w.damage} · ${w.mag} balas · ${w.range}m${w.tag ? ` · ${w.tag}` : ""}` : "Indisponível nesta fase",
         price: w.price,
         equipped,
         affordable,
+        available,
         onClick: () => submitLoadoutPurchase(w.id, cur.secondary, cur.tactical),
       })
     );
@@ -986,14 +1110,19 @@ function playHitmarkerSound() {
 function triggerHitmarkerFlash() {
   const hm = document.getElementById("hitmarker-el");
   if (!hm || !state.enhanced.hitmarker) return;
+  hm.dataset.hitSeq = String(engine.lastHitmarkerSeq);
   hm.classList.add("active");
   playHitmarkerSound();
+  if (engine.lastHitmarkerSeq <= 5) {
+    logLine("COMBAT", `Hitmarker #${engine.lastHitmarkerSeq} (WebAudio=${engine.audioCtx?.state || "none"}).`);
+  }
   if (engine.hitmarkerTimer) clearTimeout(engine.hitmarkerTimer);
   engine.hitmarkerTimer = setTimeout(() => hm.classList.remove("active"), 170);
 }
 
-function computeSaveTreeFingerprint(mod, rootDir = "/black_assets/_save") {
-  if (!mod?.FS) return "";
+function getSaveTreeStats(mod, rootDir = "/black_assets/_save") {
+  const empty = { files: 0, totalBytes: 0, maxMtime: 0, fingerprint: "" };
+  if (!mod?.FS) return empty;
   let files = 0;
   let totalBytes = 0;
   let maxMtime = 0;
@@ -1021,7 +1150,7 @@ function computeSaveTreeFingerprint(mod, rootDir = "/black_assets/_save") {
     }
   };
   walk(rootDir);
-  return `${files}:${totalBytes}:${maxMtime}`;
+  return { files, totalBytes, maxMtime, fingerprint: `${files}:${totalBytes}:${maxMtime}` };
 }
 
 async function mountCampaignSaveIdbfs(mod) {
@@ -1033,12 +1162,25 @@ async function mountCampaignSaveIdbfs(mod) {
     try {
       mod.FS.mkdir("/black_assets/_save");
     } catch {}
-    if (!mod.FS.filesystems?.IDBFS) return;
-    mod.FS.mount(mod.FS.filesystems.IDBFS, {}, "/black_assets/_save");
-    await new Promise((resolve) => mod.FS.syncfs(true, () => resolve()));
+    if (!mod.FS) {
+      logLine("SAVE", "FS indisponível neste runtime Emscripten (usando MEMFS temporário).");
+      return;
+    }
+    const idbfs = mod.IDBFS || mod.FS.filesystems?.IDBFS;
+    if (!idbfs) {
+      logLine("SAVE", "IDBFS não exposto no runtime Emscripten atual (usando MEMFS temporário).");
+      return;
+    }
+    mod.FS.mount(idbfs, {}, "/black_assets/_save");
+    const syncErr = await new Promise((resolve) => mod.FS.syncfs(true, (err) => resolve(err || null)));
+    if (syncErr) throw syncErr;
     engine.idbfsMounted = true;
-    engine.lastSaveFingerprint = computeSaveTreeFingerprint(mod);
-    logLine("SAVE", "Persistência de Campanha (IDBFS) pronta em /black_assets/_save.");
+    const stats = getSaveTreeStats(mod);
+    engine.lastSaveFingerprint = stats.fingerprint;
+    logLine(
+      "SAVE",
+      `Persistência de Campanha (IDBFS) pronta em /black_assets/_save (${stats.files} arquivo(s), ${stats.totalBytes} B restaurados).`
+    );
   } catch (err) {
     logLine("SAVE", `IDBFS indisponível (usando MEMFS): ${err?.message || err}`);
   }
@@ -1047,13 +1189,17 @@ async function mountCampaignSaveIdbfs(mod) {
 function flushCampaignSaveIdbfs(force = false) {
   const mod = engine.module;
   if (!mod?.FS || !engine.idbfsMounted || engine.saveSyncInFlight) return;
-  const fp = computeSaveTreeFingerprint(mod);
-  if (!force && fp === engine.lastSaveFingerprint) return;
-  engine.lastSaveFingerprint = fp;
+  const stats = getSaveTreeStats(mod);
+  const changed = stats.fingerprint !== engine.lastSaveFingerprint;
+  if (!force && !changed) return;
+  engine.lastSaveFingerprint = stats.fingerprint;
   engine.saveSyncInFlight = true;
   try {
-    mod.FS.syncfs(false, () => {
+    mod.FS.syncfs(false, (err) => {
       engine.saveSyncInFlight = false;
+      if (!err && changed && stats.files > 0) {
+        logLine("SAVE", `IndexedDB atualizado (${stats.files} arquivo(s), ${stats.totalBytes} B).`);
+      }
     });
   } catch {
     engine.saveSyncInFlight = false;
@@ -1063,9 +1209,9 @@ function flushCampaignSaveIdbfs(force = false) {
 function pollWasmStatus() {
   const mod = engine.module;
   if (!mod || !engine.statusPtr) return;
-  const written = mod._BlackWebGetStatusJson(engine.statusPtr, 4096);
-  if (written <= 0) return;
   try {
+    const written = mod._BlackWebGetStatusJson(engine.statusPtr, 4096);
+    if (written <= 0) return;
     const st = JSON.parse(mod.UTF8ToString(engine.statusPtr, written));
     const prevState = engine.status?.bootState;
     engine.status = st;
@@ -1107,11 +1253,57 @@ function pollWasmStatus() {
     }
     engine.wasInLevel = Boolean(st.inLevel);
 
+    if (state.pendingBuyCheck) {
+      const p = state.pendingBuyCheck;
+      const cur = currentLoadoutNumbers();
+      const changed =
+        cur.credits !== p.credits ||
+        cur.primary !== p.primary ||
+        cur.secondary !== p.secondary ||
+        cur.tactical !== p.tactical ||
+        cur.lastResult !== 0;
+      const feedback = document.getElementById("buy-feedback");
+      if (changed) {
+        if (feedback) {
+          feedback.textContent = BUY_RESULT_LABELS[cur.lastResult] || BUY_RESULT_LABELS[0];
+          feedback.dataset.tone = cur.lastResult === 0 ? "ok" : "err";
+        }
+        state.pendingBuyCheck = null;
+      } else if (performance.now() - p.sentAt > 1500) {
+        if (feedback) {
+          feedback.textContent = "Sem resposta do host para compra (verifique conexão P2P).";
+          feedback.dataset.tone = "err";
+        }
+        state.pendingBuyCheck = null;
+      }
+    }
+
+    const maskVal = st.availableWeaponMask ?? 0xffffffff;
+    const engCnt = st.engineWeaponCount ?? 0;
+    const inLvl = Boolean(st.inLevel);
+    if (
+      state.lastCatalogMask !== maskVal ||
+      state.lastCatalogEngineCount !== engCnt ||
+      state.lastCatalogInLevel !== inLvl
+    ) {
+      state.lastCatalogMask = maskVal;
+      state.lastCatalogEngineCount = engCnt;
+      state.lastCatalogInLevel = inLvl;
+      refreshCatalogFromWasm();
+      if (engine.activeOverlay === "buy") {
+        renderBuyMenu(true);
+      }
+    }
+
     if (engine.activeOverlay === "buy") {
-      const loadKey = `${st.credits}-${st.primaryWeapon}-${st.secondaryWeapon}-${st.tacticalFlags}-${st.lastLoadoutResult}-${Math.floor((st.buyTicksLeft || 0) / 30)}`;
-      if (loadKey !== state.lastLoadoutSnapshotKey) {
-        state.lastLoadoutSnapshotKey = loadKey;
-        renderBuyMenu();
+      const buyOpen = (st.buyTicksLeft || 0) > 0 ? 1 : 0;
+      const btnKey = `${st.credits}-${st.primaryWeapon}-${st.secondaryWeapon}-${st.tacticalFlags}-${st.lastLoadoutResult}-${buyOpen}-${st.fixedBudget ? 1 : 0}-${state.catalog.weapons.length}-${maskVal}-${engCnt}`;
+      const hdrKey = `${btnKey}-${Math.floor((st.buyTicksLeft || 0) / 30)}`;
+      if (btnKey !== state.lastLoadoutSnapshotKey) {
+        renderBuyMenu(false);
+      } else if (hdrKey !== state.lastBuyHeaderKey) {
+        state.lastBuyHeaderKey = hdrKey;
+        updateBuyMenuHeader(currentLoadoutNumbers());
       }
     }
 
@@ -1159,9 +1351,13 @@ function updateTelemetryUi() {
     if (state.role === "offline") {
       topPill.textContent = "CAMPANHA SOLO";
     } else if (state.role === "host") {
-      topPill.textContent = `HOST · ${state.roomCode} · ${peers + 1} jog.`;
+      topPill.textContent = st?.inLevel
+        ? `HOST · ${state.roomCode} · ${levelLabel(st.arenaId)} · ${peers + 1} jog.`
+        : `HOST · ${state.roomCode} · ${peers + 1} jog.`;
     } else {
-      topPill.textContent = st?.clientJoined ? `ONLINE · ${state.roomCode}` : `ENTRANDO · ${state.roomCode}`;
+      topPill.textContent = st?.clientJoined
+        ? `ONLINE · ${state.roomCode} · ${levelLabel(st.arenaId)}`
+        : `ENTRANDO · ${state.roomCode}`;
     }
     topPill.dataset.mode = state.role;
   }
@@ -1183,9 +1379,10 @@ function updateTelemetryUi() {
           ? `Sala ${state.roomCode} pronta com ${peers} amigo(s) conectado(s)! Todos podem clicar em Iniciar e escolher a Missão 1.`
           : `Sala ${state.roomCode} aberta (Host). Envie o link de convite (?room=${state.roomCode}) ou inicie enquanto aguarda.`;
     } else {
+      const arenaTxt = st?.clientJoined ? levelLabel(st.arenaId) : "Missão 1 · Streets";
       lobbyText.textContent =
         peers > 0 || st?.clientJoined
-          ? `Conectado à sala ${state.roomCode}! Clique em Iniciar e selecione a mesma missão do Host (ex.: Missão 1).`
+          ? `Conectado à sala ${state.roomCode}! Fase ativa do Host: ${arenaTxt}. Clique em Iniciar e selecione a mesma missão.`
           : `Procurando host da sala ${state.roomCode}...`;
     }
   }
@@ -1410,7 +1607,8 @@ async function startWasmEngine(targetMode) {
       engine.renderer.installGlobal();
     }
     if (!engine.module) {
-      let wasmErrCount = 0;
+      let dsoundSpamCount = 0;
+      let wasmOtherErrCount = 0;
       const { default: createBlackEnhancedModule } = await import("/wasm/black_enhanced.js");
       const mod = await createBlackEnhancedModule({
         locateFile: (p) => `/wasm/${p}`,
@@ -1420,9 +1618,31 @@ async function startWasmEngine(targetMode) {
         },
         printErr: (txt) => {
           const line = String(txt || "").trim();
-          if (line && wasmErrCount < 80) {
-            wasmErrCount++;
-            logLine("WASM-ERR", line);
+          if (!line) return;
+          const isMpOrHooks =
+            line.includes("mp_bridge:") ||
+            line.includes("hooks:") ||
+            line.includes("boot_wasm:") ||
+            line.includes("web_main:");
+          const isErr = line.includes("[error]") || line.includes("error:") || line.includes("TRAP");
+          if (line.includes("dsound:") && !isErr) {
+            if (dsoundSpamCount >= 12) return;
+            dsoundSpamCount++;
+          }
+          if (isMpOrHooks) {
+            logLine("WASM", line);
+            return;
+          }
+          if (isErr) {
+            if (wasmOtherErrCount < 80) {
+              wasmOtherErrCount++;
+              logLine("WASM-ERR", line);
+            }
+            return;
+          }
+          if (wasmOtherErrCount < 50) {
+            wasmOtherErrCount++;
+            logLine("WASM", line);
           }
         },
       });
@@ -1754,19 +1974,43 @@ function bindEvents() {
   bindEnhanced("opt-invert-y", () => {
     state.enhanced.invertY = Boolean(document.getElementById("opt-invert-y")?.checked);
   });
+  bindEnhanced("opt-skip-intro", () => {
+    state.enhanced.skipIntro = Boolean(document.getElementById("opt-skip-intro")?.checked);
+  });
   bindEnhanced("opt-hitmarker", () => {
     state.enhanced.hitmarker = Boolean(document.getElementById("opt-hitmarker")?.checked);
+  });
+  bindEnhanced("opt-render-percent", () => {
+    state.enhanced.renderPercent = Number(document.getElementById("opt-render-percent")?.value || 100);
+  });
+  bindEnhanced("opt-overhaul-enabled", () => {
+    state.enhanced.overhaulEnabled = Boolean(document.getElementById("opt-overhaul-enabled")?.checked);
+  });
+  bindEnhanced("opt-player-dmg", () => {
+    state.enhanced.playerDamageMult = Number(document.getElementById("opt-player-dmg")?.value || 1.35);
+  });
+  bindEnhanced("opt-enemy-dmg", () => {
+    state.enhanced.enemyDamageMult = Number(document.getElementById("opt-enemy-dmg")?.value || 1.0);
+  });
+  bindEnhanced("opt-recoil-mult", () => {
+    state.enhanced.recoilMult = Number(document.getElementById("opt-recoil-mult")?.value || 0.6);
+  });
+  bindEnhanced("opt-ammo-bonus", () => {
+    state.enhanced.ammoBonusEnabled = Boolean(document.getElementById("opt-ammo-bonus")?.checked);
   });
 
   document.getElementById("btn-vanilla-preset")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();
     state.enhanced = {
+      ...state.enhanced,
       mouseDirect: false,
       mouseSens: 0.085,
       adsSensMult: 0.7,
       invertY: false,
       fovDeg: 70,
       hitmarker: false,
+      renderPercent: 100,
+      overhaulEnabled: false,
     };
     syncEnhancedControlsUi();
     pushEnhancedConfigToWasm();
@@ -1856,7 +2100,7 @@ function bindEvents() {
 
     if (
       engine.bootStarted &&
-      ["Enter", "Space", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)
+      ["Enter", "Space", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.code)
     ) {
       e.preventDefault();
     }
@@ -1890,25 +2134,50 @@ function bindEvents() {
     pushKeyMaskToWasm();
     engine.module?._BlackWebPushMouseState(0, 0, 0);
   });
-  window.addEventListener("pagehide", () => flushCampaignSaveIdbfs(true));
+  const cleanupOnUnload = () => {
+    flushCampaignSaveIdbfs(true);
+    if (state.transport) {
+      state.transport.close();
+      state.transport = null;
+    }
+  };
+  window.addEventListener("pagehide", cleanupOnUnload);
+  window.addEventListener("beforeunload", cleanupOnUnload);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushCampaignSaveIdbfs(true);
   });
 
   gameCanvas?.addEventListener("contextmenu", (e) => e.preventDefault());
+  gameCanvas?.addEventListener("auxclick", (e) => {
+    if (e.button === 1) e.preventDefault();
+  });
   gameCanvas?.addEventListener("mousedown", (e) => {
     if (engine.activeOverlay !== "none") return;
     gameCanvas.focus();
     if (engine.audioCtx?.state === "suspended") engine.audioCtx.resume().catch(() => {});
 
+    if (e.button === 1) {
+      // Botão do meio do mouse: coronhada / melee instantâneo clássico
+      e.preventDefault();
+      pulseKey("KeyV");
+    }
+
     // Pointer Lock APENAS quando estiver em gameplay 3D real (inLevel === true)
     if (isInLevelNow()) {
       if (document.pointerLockElement !== gameCanvas) {
-        gameCanvas.requestPointerLock?.();
+        try {
+          Promise.resolve(gameCanvas.requestPointerLock?.()).catch(() => {});
+        } catch {}
       }
+      engine.lastMouseX = e.clientX || 0;
+      engine.lastMouseY = e.clientY || 0;
+      engine.hasLastMousePos = true;
       if (e.button === 0) engine.mouseButtons |= 1;
       if (e.button === 2) engine.mouseButtons |= 2;
       engine.module?._BlackWebPushMouseState(engine.mouseButtons, 0, 0);
+    } else {
+      // Fora de fase (menu ou vídeo intro): clique avança ou pula
+      pulseKey("Enter", 120);
     }
   });
   gameCanvas?.addEventListener(
@@ -1925,13 +2194,27 @@ function bindEvents() {
   window.addEventListener("mouseup", (e) => {
     if (e.button === 0) engine.mouseButtons &= ~1;
     if (e.button === 2) engine.mouseButtons &= ~2;
+    if ((engine.mouseButtons & 3) === 0) engine.hasLastMousePos = false;
     engine.module?._BlackWebPushMouseState(engine.mouseButtons, 0, 0);
   });
   gameCanvas?.addEventListener("mousemove", (e) => {
     if (!engine.module || engine.activeOverlay !== "none" || !isInLevelNow()) return;
-    if (document.pointerLockElement === gameCanvas || (engine.mouseButtons & 3) !== 0) {
+    const locked = document.pointerLockElement === gameCanvas;
+    if (locked) {
       engine.pendingDx += e.movementX || 0;
       engine.pendingDy += e.movementY || 0;
+    } else if ((engine.mouseButtons & 3) !== 0) {
+      let dx = e.movementX || 0;
+      let dy = e.movementY || 0;
+      if (dx === 0 && dy === 0 && engine.hasLastMousePos) {
+        dx = (e.clientX || 0) - engine.lastMouseX;
+        dy = (e.clientY || 0) - engine.lastMouseY;
+      }
+      engine.lastMouseX = e.clientX || 0;
+      engine.lastMouseY = e.clientY || 0;
+      engine.hasLastMousePos = true;
+      engine.pendingDx += dx;
+      engine.pendingDy += dy;
     }
   });
 }

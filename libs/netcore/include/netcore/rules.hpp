@@ -33,6 +33,11 @@ struct SpawnPoint {
     float yaw = 0.0f;
 };
 
+enum class GameMode : uint8_t {
+    PvP = 0,
+    Coop = 1,
+};
+
 struct RulesConfig {
     uint16_t tick_rate_hz = 30;       // Taxa de simulação interna de BLACK (30 FPS)
     uint16_t snapshot_rate_hz = 15;   // Snapshots de mundo por segundo
@@ -43,6 +48,8 @@ struct RulesConfig {
     uint16_t respawn_delay_ticks = 90;  // 3 segundos a 30 Hz
     float max_speed_units_per_sec = 18.0f;
     uint8_t arena_id = 0;
+    GameMode game_mode = GameMode::PvP;
+    bool friendly_fire = false;
 
     // Economia e Loadout estilo CS (teto e compra validados pelo host)
     bool fixed_budget_mode = false;

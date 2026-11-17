@@ -710,6 +710,11 @@
       background: var(--accent-dim);
     }
 
+    .buy-item.unavailable {
+      opacity: 0.42;
+      border-style: dashed;
+    }
+
     .buy-item:disabled {
       opacity: 0.45;
       cursor: not-allowed;
@@ -1271,19 +1276,72 @@
                 <input id="opt-fov" type="range" min="70" max="110" step="1" value="88" />
               </div>
 
+              <div class="slider-row">
+                <div class="slider-head">
+                  <span>Escala de Resolução Interna (WebGPU)</span>
+                  <span id="opt-render-percent-val" class="slider-val">100%</span>
+                </div>
+                <input id="opt-render-percent" type="range" min="50" max="200" step="10" value="100" />
+              </div>
+
               <div class="form-2col">
                 <label class="toggle-row">
-                  <span>Inverter Eixo Y</span>
+                  <span>Inverter Eixo Y (Pitch)</span>
                   <input id="opt-invert-y" type="checkbox" />
                 </label>
+                <label class="toggle-row">
+                  <span>Pular Vídeos de Intro (&lt; 1s boot)</span>
+                  <input id="opt-skip-intro" type="checkbox" checked />
+                </label>
+              </div>
+
+              <div class="form-2col">
                 <label class="toggle-row">
                   <span>Hitmarker HUD</span>
                   <input id="opt-hitmarker" type="checkbox" checked />
                 </label>
               </div>
 
+              <div class="section-divider" style="margin: 10px 0 6px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
+                <span class="badge-chip" style="font-size: 11px;">OVERHAUL DE CAMPANHA (ESTILO RELOADED — APENAS SOLO OFFLINE)</span>
+              </div>
+
+              <label class="toggle-row">
+                <span>Ativar Overhaul Reloaded na Campanha (Desligado = Vanilla Xbox Intacto)</span>
+                <input id="opt-overhaul-enabled" type="checkbox" />
+              </label>
+
+              <div class="slider-row">
+                <div class="slider-head">
+                  <span>Dano Causado pelo Jogador (Campanha)</span>
+                  <span id="opt-player-dmg-val" class="slider-val">1.35x</span>
+                </div>
+                <input id="opt-player-dmg" type="range" min="0.50" max="2.50" step="0.05" value="1.35" />
+              </div>
+
+              <div class="slider-row">
+                <div class="slider-head">
+                  <span>Dano Recebido pelo Jogador (Campanha)</span>
+                  <span id="opt-enemy-dmg-val" class="slider-val">1.00x</span>
+                </div>
+                <input id="opt-enemy-dmg" type="range" min="0.25" max="2.00" step="0.05" value="1.00" />
+              </div>
+
+              <div class="slider-row">
+                <div class="slider-head">
+                  <span>Recuo &amp; Dispersão das Armas</span>
+                  <span id="opt-recoil-mult-val" class="slider-val">0.60x</span>
+                </div>
+                <input id="opt-recoil-mult" type="range" min="0.10" max="1.50" step="0.05" value="0.60" />
+              </div>
+
+              <label class="toggle-row">
+                <span>Economia de Munição Reloaded (+50% na reserva ao recarregar)</span>
+                <input id="opt-ammo-bonus" type="checkbox" checked />
+              </label>
+
               <button id="btn-vanilla-preset" class="secondary-link" type="button">
-                Restaurar padrão Xbox Clássico (70° FOV, curva analógica)
+                Restaurar padrão Xbox Clássico (70° FOV, curva analógica, Overhaul OFF)
               </button>
             </div>
 
@@ -1386,9 +1444,15 @@
       <div id="controls-footer-keys">
         <span class="hint-item"><span class="key-hint">WASD</span> Mover</span>
         <span class="hint-item"><span class="key-hint">Mouse</span> Mirar</span>
-        <span class="hint-item"><span class="key-hint">Clique Esq/Dir</span> Atirar / Zoom</span>
+        <span class="hint-item"><span class="key-hint">Esq / Dir</span> Atirar / ADS</span>
+        <span class="hint-item"><span class="key-hint">Espaço</span> Pular</span>
+        <span class="hint-item"><span class="key-hint">Ctrl / C</span> Agachar</span>
         <span class="hint-item"><span class="key-hint">R</span> Recarregar</span>
-        <span class="hint-item"><span class="key-hint">E / Q / G</span> Trocar / Granada / Modo</span>
+        <span class="hint-item"><span class="key-hint">E / F</span> Interagir</span>
+        <span class="hint-item"><span class="key-hint">V / Meio</span> Coronhada</span>
+        <span class="hint-item"><span class="key-hint">1 / 2 / Roda</span> Armas</span>
+        <span class="hint-item"><span class="key-hint">G</span> Granada</span>
+        <span class="hint-item"><span class="key-hint">Q</span> Modo Disparo</span>
         <span class="hint-item"><span class="key-hint">F10</span> Opções</span>
       </div>
       <div>WebGPU + WebAudio 48 kHz + Gamepad</div>

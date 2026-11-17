@@ -40,7 +40,10 @@ uint8_t default_secondary_id(const RulesConfig& rules) {
 // ---- HostSession ---------------------------------------------------------------------------
 
 HostSession::HostSession(ITransport& transport, RulesConfig rules, std::string host_name)
-    : transport_(transport), rules_(std::move(rules)), rules_hash_(rules_.compute_hash()) {
+    : transport_(transport),
+      rules_(std::move(rules)),
+      rules_hash_(rules_.compute_hash()),
+      active_arena_id_(rules_.arena_id) {
     for (std::size_t i = 0; i < kMaxPlayers; ++i) {
         slots_[i].player_id = static_cast<uint8_t>(i);
     }
@@ -65,11 +68,13 @@ void HostSession::start_match() {
     match_start_tick_ = tick_;
     winner_ = kNoPlayer;
     recent_fires_.clear();
+    recent_blasts_.clear();
     for (std::size_t i = 0; i < kMaxPlayers; ++i) {
         auto& s = slots_[i];
         if (!s.occupied) continue;
         s.kills = 0;
         s.deaths = 0;
+        s.entered_level = s.is_local_host;
         init_slot_loadout(s);
         const uint8_t sp = rules_.spawns.empty() ? 0 : static_cast<uint8_t>(next_spawn_cursor_++ % rules_.spawns.size());
         spawn_player(s, sp);
@@ -78,8 +83,28 @@ void HostSession::start_match() {
                                   .start_tick = match_start_tick_,
                                   .time_limit_s = rules_.time_limit_s,
                                   .kill_limit = rules_.kill_limit,
-                                  .arena_id = rules_.arena_id,
+                                  .arena_id = active_arena_id_,
+                                  .game_mode = static_cast<uint8_t>(rules_.game_mode),
+                                  .available_weapon_mask = available_weapon_mask_,
                               });
+    broadcast_roster();
+}
+
+void HostSession::set_level_context(uint8_t arena_id, uint32_t available_weapon_mask) {
+    const uint32_t clean_mask = (available_weapon_mask == 0u) ? 0xFFFFFFFFu : available_weapon_mask;
+    if (active_arena_id_ == arena_id && available_weapon_mask_ == clean_mask) return;
+    active_arena_id_ = arena_id;
+    available_weapon_mask_ = clean_mask;
+    if (phase_ == MatchPhase::Running) {
+        broadcast_msg(transport_, MatchStart{
+                                      .start_tick = match_start_tick_,
+                                      .time_limit_s = rules_.time_limit_s,
+                                      .kill_limit = rules_.kill_limit,
+                                      .arena_id = active_arena_id_,
+                                      .game_mode = static_cast<uint8_t>(rules_.game_mode),
+                                      .available_weapon_mask = available_weapon_mask_,
+                                  });
+    }
 }
 
 void HostSession::set_spawn_points(std::vector<SpawnPoint> spawns) {
@@ -122,6 +147,13 @@ bool HostSession::local_fire(const FireEvent& ev) {
     return apply_validated_fire(slots_[0], copy);
 }
 
+bool HostSession::local_blast(BlastEvent ev) {
+    if (ev.attacker != kNoPlayer) ev.attacker = 0;
+    ev.flags |= kBlastFlagClaim;
+    if (!is_valid(Message{ev})) return false;
+    return apply_validated_blast(&slots_[0], ev);
+}
+
 bool HostSession::local_buy_loadout(const LoadoutRequest& req) {
     return apply_loadout(slots_[0], req);
 }
@@ -131,25 +163,54 @@ LoadoutState HostSession::slot_loadout_state(uint8_t player_id) const {
     return build_loadout_state(slots_[player_id], static_cast<LoadoutResult>(slots_[player_id].last_loadout_result));
 }
 
-bool HostSession::apply_damage(uint8_t attacker_id, uint8_t victim_id, uint16_t amount, uint8_t weapon_id) {
-    if (phase_ != MatchPhase::Running) return false;
-    if (attacker_id >= kMaxPlayers || victim_id >= kMaxPlayers || attacker_id == victim_id) return false;
-    if (amount == 0 || weapon_id >= kMaxWeapons) return false;
+void HostSession::refresh_buy_window(uint8_t player_id) {
+    if (player_id >= kMaxPlayers || !slots_[player_id].occupied || phase_ == MatchPhase::Ended) return;
+    HostPlayerSlot& s = slots_[player_id];
+    if ((s.flags & kFlagAlive) == 0) return;
+    s.spawn_tick = tick_;
+    if (!s.is_local_host) {
+        send_msg(transport_, s.peer, build_loadout_state(s, static_cast<LoadoutResult>(s.last_loadout_result)));
+    }
+}
 
-    HostPlayerSlot& shooter = slots_[attacker_id];
+bool HostSession::apply_damage(uint8_t attacker_id, uint8_t victim_id, uint16_t amount, uint8_t weapon_id) {
+    return apply_damage_internal(attacker_id, victim_id, amount, weapon_id, false);
+}
+
+bool HostSession::apply_damage_internal(uint8_t attacker_id, uint8_t victim_id, uint16_t amount,
+                                         uint8_t weapon_id, bool allow_self_or_env) {
+    if (phase_ != MatchPhase::Running) return false;
+    if (victim_id >= kMaxPlayers) return false;
+    if (!allow_self_or_env) {
+        if (attacker_id >= kMaxPlayers || attacker_id == victim_id) return false;
+    } else {
+        if (attacker_id >= kMaxPlayers && attacker_id != kNoPlayer) return false;
+    }
+    if (amount == 0 || (weapon_id >= kMaxWeapons && (!allow_self_or_env || weapon_id != kNoWeapon))) return false;
+
+    const bool has_valid_killer = (attacker_id < kMaxPlayers && attacker_id != victim_id);
+    if (has_valid_killer && rules_.game_mode == GameMode::Coop && !rules_.friendly_fire) {
+        return false;
+    }
+
     HostPlayerSlot& target = slots_[victim_id];
-    if (!shooter.occupied || !target.occupied || (target.flags & kFlagAlive) == 0) return false;
+    HostPlayerSlot* shooter = has_valid_killer ? &slots_[attacker_id] : nullptr;
+    if (!target.occupied || (target.flags & kFlagAlive) == 0) return false;
+    if (has_valid_killer && !shooter->occupied) return false;
 
     if (amount >= target.health) {
         target.health = 0;
         target.flags &= ~uint8_t(kFlagAlive);
         target.respawn_at_tick = tick_ + rules_.respawn_delay_ticks;
-        ++shooter.kills;
         ++target.deaths;
-
+        if (shooter) {
+            ++shooter->kills;
+            if (!rules_.fixed_budget_mode) {
+                shooter->credits = static_cast<uint16_t>(
+                    std::min<uint32_t>(rules_.max_credits, static_cast<uint32_t>(shooter->credits) + rules_.kill_reward_credits));
+            }
+        }
         if (!rules_.fixed_budget_mode) {
-            shooter.credits = static_cast<uint16_t>(
-                std::min<uint32_t>(rules_.max_credits, static_cast<uint32_t>(shooter.credits) + rules_.kill_reward_credits));
             target.credits = static_cast<uint16_t>(
                 std::min<uint32_t>(rules_.max_credits, static_cast<uint32_t>(target.credits) + rules_.death_bonus_credits));
         }
@@ -162,23 +223,25 @@ bool HostSession::apply_damage(uint8_t attacker_id, uint8_t victim_id, uint16_t 
         }
 
         broadcast_msg(transport_, DamageEvent{
-                                      .attacker = shooter.player_id,
+                                      .attacker = attacker_id,
                                       .target = target.player_id,
                                       .amount = amount,
                                       .health_after = 0,
                                   });
         broadcast_msg(transport_, DeathEvent{
                                       .victim = target.player_id,
-                                      .killer = shooter.player_id,
+                                      .killer = has_valid_killer ? attacker_id : kNoPlayer,
                                       .weapon = weapon_id,
                                   });
-        broadcast_msg(transport_, build_loadout_state(shooter, LoadoutResult::Ok));
+        if (shooter) {
+            broadcast_msg(transport_, build_loadout_state(*shooter, LoadoutResult::Ok));
+        }
         broadcast_msg(transport_, build_loadout_state(target, LoadoutResult::Ok));
         check_match_end();
     } else {
         target.health = static_cast<uint8_t>(target.health - amount);
         broadcast_msg(transport_, DamageEvent{
-                                      .attacker = shooter.player_id,
+                                      .attacker = attacker_id,
                                       .target = target.player_id,
                                       .amount = amount,
                                       .health_after = target.health,
@@ -274,6 +337,8 @@ void HostSession::handle_packet(PeerId peer, const std::vector<uint8_t>& payload
         handle_player_state(*slot, *ps);
     } else if (const auto* fire = std::get_if<FireEvent>(&msg)) {
         handle_fire(*slot, *fire);
+    } else if (const auto* blast = std::get_if<BlastEvent>(&msg)) {
+        handle_blast(*slot, *blast);
     } else if (const auto* req = std::get_if<LoadoutRequest>(&msg)) {
         handle_loadout_request(*slot, *req);
     } else if (const auto* ping = std::get_if<Ping>(&msg)) {
@@ -288,13 +353,16 @@ void HostSession::handle_packet(PeerId peer, const std::vector<uint8_t>& payload
 }
 
 void HostSession::handle_disconnect(PeerId peer) {
+    bool changed = false;
     if (auto* slot = find_slot_by_peer(peer)) {
         const uint8_t id = slot->player_id;
         *slot = HostPlayerSlot{};
         slot->player_id = id;
+        changed = true;
     }
     unauthenticated_packets_.erase(peer);
     unauthenticated_violations_.erase(peer);
+    if (changed) broadcast_roster();
 }
 
 void HostSession::handle_hello(PeerId peer, const Hello& msg) {
@@ -319,16 +387,22 @@ void HostSession::handle_hello(PeerId peer, const Hello& msg) {
                                        .max_players = static_cast<uint8_t>(cap),
                                        .tick_rate_hz = rules_.tick_rate_hz,
                                        .snapshot_rate_hz = rules_.snapshot_rate_hz,
+                                       .game_mode = static_cast<uint8_t>(rules_.game_mode),
+                                       .arena_id = active_arena_id_,
+                                       .available_weapon_mask = available_weapon_mask_,
                                    });
         if (phase_ == MatchPhase::Running) {
             send_msg(transport_, peer, MatchStart{
                                            .start_tick = match_start_tick_,
                                            .time_limit_s = rules_.time_limit_s,
                                            .kill_limit = rules_.kill_limit,
-                                           .arena_id = rules_.arena_id,
+                                           .arena_id = active_arena_id_,
+                                           .game_mode = static_cast<uint8_t>(rules_.game_mode),
+                                           .available_weapon_mask = available_weapon_mask_,
                                        });
         }
         send_msg(transport_, peer, build_loadout_state(*existing, static_cast<LoadoutResult>(existing->last_loadout_result)));
+        broadcast_roster();
         return;
     }
 
@@ -361,6 +435,9 @@ void HostSession::handle_hello(PeerId peer, const Hello& msg) {
                                    .max_players = static_cast<uint8_t>(cap),
                                    .tick_rate_hz = rules_.tick_rate_hz,
                                    .snapshot_rate_hz = rules_.snapshot_rate_hz,
+                                   .game_mode = static_cast<uint8_t>(rules_.game_mode),
+                                   .arena_id = active_arena_id_,
+                                   .available_weapon_mask = available_weapon_mask_,
                                });
 
     for (std::size_t i = 0; i < cap; ++i) {
@@ -377,9 +454,12 @@ void HostSession::handle_hello(PeerId peer, const Hello& msg) {
                                        .start_tick = match_start_tick_,
                                        .time_limit_s = rules_.time_limit_s,
                                        .kill_limit = rules_.kill_limit,
-                                       .arena_id = rules_.arena_id,
+                                       .arena_id = active_arena_id_,
+                                       .game_mode = static_cast<uint8_t>(rules_.game_mode),
+                                       .available_weapon_mask = available_weapon_mask_,
                                    });
     }
+    broadcast_roster();
 }
 
 void HostSession::handle_player_state(HostPlayerSlot& slot, const PlayerState& msg) {
@@ -388,6 +468,13 @@ void HostSession::handle_player_state(HostPlayerSlot& slot, const PlayerState& m
 
     // Se o jogador está morto no host, ignora atualizações de movimento até o respawn
     if ((slot.flags & kFlagAlive) == 0) {
+        slot.last_sequence = msg.sequence;
+        return;
+    }
+
+    // Descarta pacotes antigos em trânsito enviados antes do cliente processar RespawnEvent/teleporte.
+    if (tick_ <= slot.respawn_grace_until_tick && slot.last_state_tick == 0 &&
+        distance_sq(slot.position, msg.position) > 16.0f) {
         slot.last_sequence = msg.sequence;
         return;
     }
@@ -429,6 +516,11 @@ void HostSession::handle_player_state(HostPlayerSlot& slot, const PlayerState& m
         }
     }
     slot.flags = (msg.flags & ~uint8_t(kFlagAlive)) | kFlagAlive;
+    if ((msg.flags & kFlagAlive) != 0 && !slot.entered_level) {
+        slot.entered_level = true;
+        slot.spawn_tick = tick_;
+        send_msg(transport_, slot.peer, build_loadout_state(slot, static_cast<LoadoutResult>(slot.last_loadout_result)));
+    }
 }
 
 void HostSession::handle_fire(HostPlayerSlot& shooter, const FireEvent& msg) {
@@ -437,6 +529,61 @@ void HostSession::handle_fire(HostPlayerSlot& shooter, const FireEvent& msg) {
         return;
     }
     apply_validated_fire(shooter, msg);
+}
+
+void HostSession::handle_blast(HostPlayerSlot& sender, const BlastEvent& msg) {
+    const bool sender_is_attacker = (msg.attacker == sender.player_id);
+    const bool self_world_blast = (msg.attacker == kNoPlayer && msg.target == sender.player_id);
+    if (!sender_is_attacker && !self_world_blast) {
+        penalize(sender.peer, &sender, KickReason::TooManyViolations);
+        return;
+    }
+    apply_validated_blast(&sender, msg);
+}
+
+bool HostSession::apply_validated_blast(HostPlayerSlot* sender, const BlastEvent& msg) {
+    if (phase_ != MatchPhase::Running) return false;
+    if (msg.damage <= 0.0f) return false;
+    if (sender && !sender->occupied) return false;
+
+    const float dx_orig = sender ? (msg.origin.x - sender->position.x) : 0.0f;
+    const float dy_orig = sender ? (msg.origin.y - sender->position.y) : 0.0f;
+    const float dz_orig = sender ? (msg.origin.z - sender->position.z) : 0.0f;
+    if (sender && msg.weapon != kNoWeapon && (msg.weapon == 14u || msg.weapon == 15u)) {
+        // M203/RPG podem explodir longe do atirador; validamos apenas proximidade com a vítima.
+        (void)dx_orig; (void)dy_orig; (void)dz_orig;
+    } else if (sender && msg.attacker == kNoPlayer && (dx_orig * dx_orig + dy_orig * dy_orig + dz_orig * dz_orig) > 36.0f * 36.0f) {
+        return false;
+    }
+
+    if (msg.target < kMaxPlayers) {
+        const auto& victim = slots_[msg.target];
+        if (!victim.occupied || (victim.flags & kFlagAlive) == 0) return false;
+        const float vx = msg.origin.x - victim.position.x;
+        const float vy = msg.origin.y - victim.position.y;
+        const float vz = msg.origin.z - victim.position.z;
+        // Tolerância de raio explosivo + latência de rede
+        if ((vx * vx + vy * vy + vz * vz) > 30.0f * 30.0f) return false;
+    }
+
+    const uint16_t clamped_dmg = static_cast<uint16_t>(
+        std::min<long>(200L, std::max<long>(1L, static_cast<long>(msg.damage + 0.5f))));
+
+    bool applied = false;
+    if (msg.target < kMaxPlayers) {
+        applied = apply_damage_internal(msg.attacker, msg.target, clamped_dmg, msg.weapon, true);
+    }
+
+    if (applied || msg.target == kNoPlayer) {
+        BlastEvent out = msg;
+        out.flags = kBlastFlagVisualOnly;
+        out.damage = static_cast<float>(clamped_dmg);
+        if (recent_blasts_.size() < 64) {
+            recent_blasts_.push_back(out);
+        }
+        broadcast_msg(transport_, out);
+    }
+    return applied;
 }
 
 void HostSession::handle_loadout_request(HostPlayerSlot& slot, const LoadoutRequest& msg) {
@@ -604,14 +751,16 @@ bool HostSession::apply_loadout(HostPlayerSlot& slot, const LoadoutRequest& req)
     const WeaponSpec* prim = nullptr;
     if (req.primary_weapon != kNoWeapon) {
         prim = rules_.find_weapon(req.primary_weapon);
-        if (!prim || (prim->slot != WeaponSlot::Primary && prim->slot != WeaponSlot::Tactical)) {
+        if (!prim || (prim->slot != WeaponSlot::Primary && prim->slot != WeaponSlot::Tactical) ||
+            (req.primary_weapon < 32u && (available_weapon_mask_ & (1u << req.primary_weapon)) == 0)) {
             return fail(LoadoutResult::InvalidItem);
         }
     }
     const WeaponSpec* sec = nullptr;
     if (req.secondary_weapon != kNoWeapon) {
         sec = rules_.find_weapon(req.secondary_weapon);
-        if (!sec || sec->slot != WeaponSlot::Secondary) {
+        if (!sec || sec->slot != WeaponSlot::Secondary ||
+            (req.secondary_weapon < 32u && (available_weapon_mask_ & (1u << req.secondary_weapon)) == 0)) {
             return fail(LoadoutResult::InvalidItem);
         }
     }
@@ -688,6 +837,7 @@ void HostSession::spawn_player(HostPlayerSlot& slot, uint8_t spawn_idx) {
     slot.respawn_at_tick = 0;
     slot.last_state_tick = 0;
     slot.spawn_tick = tick_;
+    slot.respawn_grace_until_tick = tick_ + std::max<uint16_t>(1, rules_.tick_rate_hz);
     if (rules_.fixed_budget_mode) {
         slot.credits = rules_.max_credits;
     }
@@ -745,6 +895,22 @@ void HostSession::check_match_end() {
     }
 }
 
+void HostSession::broadcast_roster() {
+    PlayerRoster roster;
+    for (const auto& s : slots_) {
+        if (!s.occupied) continue;
+        std::string safe_name = s.name.empty() ? ("Player " + std::to_string(s.player_id)) : s.name;
+        if (safe_name.size() > kMaxNameLength) safe_name.resize(kMaxNameLength);
+        roster.players.push_back(PlayerRosterEntry{
+            .player_id = s.player_id,
+            .name = std::move(safe_name),
+        });
+    }
+    if (!roster.players.empty()) {
+        broadcast_msg(transport_, roster);
+    }
+}
+
 void HostSession::broadcast_snapshot() {
     WorldSnapshot snap;
     snap.tick = tick_;
@@ -797,6 +963,7 @@ void HostSession::kick_peer(PeerId peer, HostPlayerSlot* slot, KickReason reason
         const uint8_t id = slot->player_id;
         *slot = HostPlayerSlot{};
         slot->player_id = id;
+        broadcast_roster();
     }
     transport_.disconnect(peer);
 }
@@ -840,6 +1007,15 @@ bool ClientSession::send_fire(FireEvent ev) {
     return transport_.send(host_peer_, Channel::Reliable, bytes);
 }
 
+bool ClientSession::send_blast(BlastEvent ev) {
+    if (!joined_) return false;
+    if (ev.attacker != kNoPlayer) ev.attacker = player_id_;
+    ev.flags |= kBlastFlagClaim;
+    auto bytes = encode(ev);
+    if (bytes.empty()) return false;
+    return transport_.send(host_peer_, Channel::Reliable, bytes);
+}
+
 bool ClientSession::send_loadout_request(const LoadoutRequest& req) {
     if (!joined_) return false;
     auto bytes = encode(req);
@@ -866,15 +1042,21 @@ void ClientSession::handle_message(const Message& msg) {
     if (const auto* w = std::get_if<Welcome>(&msg)) {
         joined_ = true;
         player_id_ = w->player_id;
+        game_mode_ = w->game_mode;
+        active_arena_id_ = w->arena_id;
+        available_weapon_mask_ = w->available_weapon_mask;
     } else if (const auto* r = std::get_if<Reject>(&msg)) {
         joined_ = false;
         rejected_ = r->reason;
     } else if (const auto* k = std::get_if<Kick>(&msg)) {
         joined_ = false;
         kicked_ = k->reason;
-    } else if (std::holds_alternative<MatchStart>(msg)) {
+    } else if (const auto* ms = std::get_if<MatchStart>(&msg)) {
         latest_snapshot_.phase = MatchPhase::Running;
         winner_ = kNoPlayer;
+        active_arena_id_ = ms->arena_id;
+        game_mode_ = ms->game_mode;
+        available_weapon_mask_ = ms->available_weapon_mask;
     } else if (const auto* me = std::get_if<MatchEnd>(&msg)) {
         latest_snapshot_.phase = MatchPhase::Ended;
         winner_ = me->winner;
@@ -885,6 +1067,10 @@ void ClientSession::handle_message(const Message& msg) {
     } else if (const auto* fire = std::get_if<FireEvent>(&msg)) {
         if (recent_fires_.size() < 64) {
             recent_fires_.push_back(*fire);
+        }
+    } else if (const auto* blast = std::get_if<BlastEvent>(&msg)) {
+        if (recent_blasts_.size() < 64) {
+            recent_blasts_.push_back(*blast);
         }
     } else if (const auto* dmg = std::get_if<DamageEvent>(&msg)) {
         recent_damages_.push_back(*dmg);
@@ -898,6 +1084,13 @@ void ClientSession::handle_message(const Message& msg) {
         }
         if (recent_loadouts_.size() < 64) {
             recent_loadouts_.push_back(*ls);
+        }
+    } else if (const auto* roster = std::get_if<PlayerRoster>(&msg)) {
+        player_names_.fill({});
+        for (const auto& entry : roster->players) {
+            if (entry.player_id < kMaxPlayers) {
+                player_names_[entry.player_id] = entry.name;
+            }
         }
     } else if (const auto* pong = std::get_if<Pong>(&msg)) {
         last_pong_ = *pong;

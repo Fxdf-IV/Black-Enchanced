@@ -136,6 +136,16 @@ inline void W8(uint8_t* base, uint32_t va, uint8_t v) {
     base[FoldVa(va)] = v;
 }
 
+inline uint16_t R16(const uint8_t* base, uint32_t va) {
+    uint16_t v = 0;
+    std::memcpy(&v, base + FoldVa(va), sizeof(v));
+    return v;
+}
+
+inline void W16(uint8_t* base, uint32_t va, uint16_t v) {
+    std::memcpy(base + FoldVa(va), &v, sizeof(v));
+}
+
 inline void W32(uint8_t* base, uint32_t va, uint32_t v) {
     std::memcpy(base + FoldVa(va), &v, sizeof(v));
 }

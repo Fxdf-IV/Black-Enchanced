@@ -7,7 +7,7 @@
 namespace netcore {
 
 // Versão do protocolo de rede. Cliente e host recusam a conexão quando divergem.
-inline constexpr uint16_t kProtocolVersion = 2;
+inline constexpr uint16_t kProtocolVersion = 3;
 
 // Marca no início de todo pacote, para descartar lixo cedo.
 inline constexpr uint16_t kPacketMagic = 0xB1AC;

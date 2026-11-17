@@ -59,6 +59,9 @@ struct BridgeTelemetry {
     uint64_t hitmarker_seq = 0;
     uint32_t engine_weapon_count = 0;
     uint8_t active_engine_weapon_id = 0xFF;
+    uint8_t arena_id = 0;
+    uint8_t game_mode = 0;
+    uint32_t available_weapon_mask = 0xFFFFFFFFu;
     std::array<HudPlayerRow, netcore::kMaxPlayers> players{};
 };
 
@@ -109,6 +112,10 @@ void OnPostFrame(uint8_t* guest_base);
 void BindRemoteActor(uint8_t player_id, uint32_t actor_va);
 void UnbindRemoteActor(uint8_t player_id);
 bool IsRemoteActor(uint32_t actor_va);
+bool PrepareRemoteActorSpawn(uint8_t* guest_base, uint8_t& out_slot, uint32_t& out_name_va,
+                             uint32_t& out_seq_va, uint32_t& out_arch, uint32_t& out_whash_lo,
+                             uint32_t& out_whash_hi, uint32_t& out_spawner_va);
+void CompleteRemoteActorSpawn(uint8_t* guest_base, uint8_t slot, uint32_t ai_controller_va);
 
 // Teste #2 da Fase 2 (sub_001E5F70): retorna true se o controlador pertence a um ator remoto cujo cérebro
 // de IA deve ser ignorado neste quadro.
@@ -122,7 +129,7 @@ bool ShouldSuppressMissionFailed(const uint8_t* guest_base);
 // Interceptação de dano em partida multiplayer (sub_001E74B0 / sub_001DF830):
 // Retorna true quando a função original do XBE deve ser suprimida (::kernel::Return(ctx, 0, 7)).
 bool OnCharacterTakeBulletDamage(uint8_t* guest_base, uint32_t victim_va, uint32_t attacker_va, float raw_damage);
-bool ShouldSuppressBlastDamage(uint8_t* guest_base, uint32_t victim_va, float raw_damage);
+bool OnCharacterTakeBlastDamage(uint8_t* guest_base, uint32_t victim_va, float raw_damage, uint32_t blast_info_va);
 
 // Sincronização espacial (posição, bbox e partição world+0x4960) via kFnCharSetPos em sub_001CCBB0:
 // Preenche o vetor alinhado na memória convidada e devolve true para slots remotos ativos na fase.

@@ -52,6 +52,7 @@ RulesConfig RulesConfig::default_deathmatch() {
 RulesConfig RulesConfig::cs_loadout_deathmatch() {
     RulesConfig cfg = default_deathmatch();
     cfg.enforce_loadout = true;
+    cfg.buy_window_ticks = 2700;  // 90 s a 30 Hz
     return cfg;
 }
 
@@ -66,6 +67,8 @@ uint32_t RulesConfig::compute_hash() const {
     h = fnv1a_u32(h, respawn_delay_ticks);
     h = fnv1a_u32(h, std::bit_cast<uint32_t>(max_speed_units_per_sec));
     h = fnv1a_u32(h, arena_id);
+    h = fnv1a_u32(h, static_cast<uint32_t>(game_mode));
+    h = fnv1a_u32(h, friendly_fire ? 1u : 0u);
     h = fnv1a_u32(h, fixed_budget_mode ? 1u : 0u);
     h = fnv1a_u32(h, enforce_loadout ? 1u : 0u);
     h = fnv1a_u32(h, starting_credits);

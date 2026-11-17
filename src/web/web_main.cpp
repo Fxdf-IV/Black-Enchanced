@@ -37,13 +37,14 @@ Settings g_settings{
     .width = 1280,
     .height = 720,
     .render_percent = 100,
-    .fps_cap = 60,
+    .fps_cap = 30,
     .vsync = true,
 };
 
 std::recursive_mutex g_ui_lock;
 std::atomic<uint32_t> g_canvas_w{1280};
 std::atomic<uint32_t> g_canvas_h{720};
+std::atomic<uint32_t> g_render_percent{100};
 std::atomic<bool> g_has_webgpu{false};
 std::string g_exe_dir = "/black_assets";
 std::mutex g_status_mu;
@@ -184,10 +185,11 @@ Mode Output() { return Desktop(); }
 
 float RenderScale(uint32_t guest_height) {
     const uint32_t out_h = g_canvas_h.load(std::memory_order_relaxed);
-    const uint32_t pct = std::clamp<uint32_t>(g_settings.render_percent, 25u, 200u);
+    if (out_h == 0) return 1.0f;
+    const uint32_t pct = std::clamp<uint32_t>(g_render_percent.load(std::memory_order_relaxed), 50u, 200u);
     const float target_h = float(out_h) * (float(pct) / 100.0f);
     const float gh = float(guest_height ? guest_height : 480u);
-    return std::max(1.0f, target_h / gh);
+    return std::clamp(target_h / gh, 0.5f, 3.0f);
 }
 
 bool Widescreen() {
@@ -314,14 +316,32 @@ int32_t BlackWebSetRoleEx(uint32_t role, const char* player_name, uint32_t host_
 }
 
 void BlackWebSetEnhancedConfig(uint32_t mouse_direct, float mouse_sens, float ads_mult, uint32_t invert_y,
-                               float fov_deg, uint32_t hitmarker) {
-    common::EnhancedConfig cfg{};
+                               float fov_deg, uint32_t hitmarker, uint32_t skip_intro) {
+    common::EnhancedConfig cfg = common::GetEnhancedConfig();
     cfg.mouse_direct = (mouse_direct != 0);
     cfg.mouse_sens = mouse_sens;
     cfg.ads_sens_mult = ads_mult;
     cfg.invert_y = (invert_y != 0);
     cfg.fov_deg = fov_deg;
     cfg.hitmarker = (hitmarker != 0);
+    cfg.skip_intro = (skip_intro != 0);
+    common::SetEnhancedConfig(cfg);
+}
+
+void BlackWebSetRenderPercent(uint32_t pct) {
+    const uint32_t clamped = std::clamp<uint32_t>(pct, 50u, 200u);
+    app::g_render_percent.store(clamped, std::memory_order_relaxed);
+    app::g_settings.render_percent = clamped;
+}
+
+void BlackWebSetOverhaulConfig(uint32_t enabled, float player_dmg_mult, float enemy_dmg_mult, float recoil_mult,
+                               uint32_t ammo_bonus) {
+    common::EnhancedConfig cfg = common::GetEnhancedConfig();
+    cfg.overhaul_enabled = (enabled != 0);
+    cfg.player_damage_mult = player_dmg_mult;
+    cfg.enemy_damage_mult = enemy_dmg_mult;
+    cfg.recoil_mult = recoil_mult;
+    cfg.ammo_bonus_enabled = (ammo_bonus != 0);
     common::SetEnhancedConfig(cfg);
 }
 
@@ -449,7 +469,8 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
         "\"primaryWeapon\":%u,\"secondaryWeapon\":%u,\"activeWeapon\":%u,\"activeSlot\":%u,\"tacticalFlags\":%u,"
         "\"lastLoadoutResult\":%u,\"credits\":%u,\"maxCredits\":%u,\"kitCost\":%u,\"buyTicksLeft\":%u,"
         "\"fixedBudget\":%s,\"enforceLoadout\":%s,\"hp\":%u,\"kills\":%u,\"deaths\":%u,"
-        "\"hitmarkerSeq\":%llu,\"engineWeaponCount\":%u,\"activeEngineWeaponId\":%u,\"players\":[",
+        "\"hitmarkerSeq\":%llu,\"engineWeaponCount\":%u,\"activeEngineWeaponId\":%u,"
+        "\"arenaId\":%u,\"gameMode\":%u,\"availableWeaponMask\":%u,\"players\":[",
         web_stats::g_boot_state.load(std::memory_order_relaxed), escaped.c_str(),
         app::g_has_webgpu.load(std::memory_order_relaxed) ? "true" : "false",
         web_stats::g_gpu_ready.load(std::memory_order_relaxed) ? "true" : "false",
@@ -472,7 +493,9 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
         tel.fixed_budget_mode ? "true" : "false", tel.enforce_loadout ? "true" : "false",
         static_cast<unsigned>(tel.local_health), static_cast<int>(tel.local_kills),
         static_cast<int>(tel.local_deaths), static_cast<unsigned long long>(tel.hitmarker_seq),
-        static_cast<unsigned>(tel.engine_weapon_count), static_cast<unsigned>(tel.active_engine_weapon_id));
+        static_cast<unsigned>(tel.engine_weapon_count), static_cast<unsigned>(tel.active_engine_weapon_id),
+        static_cast<unsigned>(tel.arena_id), static_cast<unsigned>(tel.game_mode),
+        static_cast<unsigned>(tel.available_weapon_mask));
     if (hdr_len > 0) json.append(hdr, static_cast<std::size_t>(std::min<int>(hdr_len, sizeof(hdr) - 1)));
 
     bool first_p = true;

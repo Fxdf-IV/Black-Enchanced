@@ -107,8 +107,8 @@ if(EMSCRIPTEN)
     target_link_options(BlackEnhancedWeb PRIVATE
         -sUSE_PTHREADS=1
         -sPTHREAD_POOL_SIZE=24
-        -sALLOW_MEMORY_GROWTH=1
-        -sINITIAL_MEMORY=671088640
+        -sALLOW_MEMORY_GROWTH=0
+        -sINITIAL_MEMORY=1073741824
         -sMAXIMUM_MEMORY=1073741824
         -sSTACK_SIZE=1048576
         -sDEFAULT_PTHREAD_STACK_SIZE=4194304
@@ -118,8 +118,8 @@ if(EMSCRIPTEN)
         -sFORCE_FILESYSTEM=1
         -lidbfs.js
         -sEXIT_RUNTIME=0
-        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_BlackWebRequestBoot','_BlackWebSetRole','_BlackWebSetRoleEx','_BlackWebSetSkipCutscenes','_BlackWebGetSkipCutscenes','_BlackWebSetEnhancedConfig','_BlackWebBuyLoadout','_BlackWebEquipSlot','_BlackWebGetWeaponsJson','_BlackWebPushKeyState','_BlackWebPushMouseState','_BlackWebPushGamepadState','_BlackWebPushIncomingNet','_BlackWebPopOutgoingNet','_BlackWebGetStatusJson','_BlackWebNotifyCanvasReady','_BlackWebDrainAudio','_BlackWebGetBuiltinWgsl']"
-        "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','HEAPU8','HEAP32','HEAPU32','HEAPF32','UTF8ToString','stringToUTF8','lengthBytesUTF8']"
+        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_BlackWebRequestBoot','_BlackWebSetRole','_BlackWebSetRoleEx','_BlackWebSetSkipCutscenes','_BlackWebGetSkipCutscenes','_BlackWebSetEnhancedConfig','_BlackWebSetRenderPercent','_BlackWebSetOverhaulConfig','_BlackWebBuyLoadout','_BlackWebEquipSlot','_BlackWebGetWeaponsJson','_BlackWebPushKeyState','_BlackWebPushMouseState','_BlackWebPushGamepadState','_BlackWebPushIncomingNet','_BlackWebPopOutgoingNet','_BlackWebGetStatusJson','_BlackWebNotifyCanvasReady','_BlackWebDrainAudio','_BlackWebGetBuiltinWgsl']"
+        "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','IDBFS','HEAPU8','HEAP32','HEAPU32','HEAPF32','UTF8ToString','stringToUTF8','lengthBytesUTF8']"
     )
     return()
 endif()

@@ -142,6 +142,7 @@ export class BlackWebGpuRenderer {
     this.bgl1Cache = new Map();
     this.bg1Cache = new Map();
     this.texInBg1 = new Set();
+    this.dirtyBg1Ids = new Set();
     this.blitBgCache = new Map();
     this.depthBgCache = new Map();
     this.clearPipelines = new Map();
@@ -618,6 +619,29 @@ export class BlackWebGpuRenderer {
     return s && !s.isCmp ? s.obj : this.defaultSampler;
   }
 
+  pruneBg1Cache() {
+    if (this.dirtyBg1Ids.size === 0) return;
+    if (this.dirtyBg1Ids.size >= 8 || this.bg1Cache.size > 4096) {
+      this.bg1Cache.clear();
+      this.texInBg1.clear();
+      this.dirtyBg1Ids.clear();
+      return;
+    }
+    for (const k of this.bg1Cache.keys()) {
+      const midStart = k.indexOf(":") + 1;
+      const midEnd = k.indexOf(":", midStart);
+      if (midStart <= 0 || midEnd <= midStart) continue;
+      const parts = k.slice(midStart, midEnd).split(",");
+      for (let i = 0; i < 4; i++) {
+        if (this.dirtyBg1Ids.has(Number(parts[i]))) {
+          this.bg1Cache.delete(k);
+          break;
+        }
+      }
+    }
+    this.dirtyBg1Ids.clear();
+  }
+
   getBg1(texKinds, texIds, smpIds, rtId, dsId) {
     const resolvedTex = [0, 0, 0, 0];
     const resolvedSmp = [0, 0, 0, 0];
@@ -632,6 +656,7 @@ export class BlackWebGpuRenderer {
       `${texKinds[0]}${texKinds[1]}${texKinds[2]}${texKinds[3]}:` +
       `${resolvedTex[0]},${resolvedTex[1]},${resolvedTex[2]},${resolvedTex[3]}:` +
       `${resolvedSmp[0]},${resolvedSmp[1]},${resolvedSmp[2]},${resolvedSmp[3]}`;
+    this.pruneBg1Cache();
     let bg = this.bg1Cache.get(key);
     if (bg) return bg;
 
@@ -869,9 +894,11 @@ export class BlackWebGpuRenderer {
           }
           if (this.texInBg1.has(id)) {
             this.texInBg1.delete(id);
-            const re = new RegExp(`(?:^|[:,])${id}(?:[:,]|$)`);
-            for (const k of this.bg1Cache.keys()) {
-              if (re.test(k)) this.bg1Cache.delete(k);
+            this.dirtyBg1Ids.add(id);
+            if (this.dirtyBg1Ids.size >= 8) {
+              this.bg1Cache.clear();
+              this.texInBg1.clear();
+              this.dirtyBg1Ids.clear();
             }
           }
         }
