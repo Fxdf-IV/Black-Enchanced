@@ -1,8 +1,9 @@
-# Territorial Assault — decisões de regra e protocolo (Fase 1 + `0xB1AC`)
+# Territorial Assault — decisões de regra, protocolo e integração Web
 
-Implementação em `libs/netcore` (C++20 puro, sem dependência do motor ou de rede externa, sem efeito na campanha offline):
-- Lógica pura: [territorial.hpp](../libs/netcore/include/netcore/territorial.hpp) / [territorial.cpp](../libs/netcore/src/territorial.cpp), testes em [test_territorial.cpp](../libs/netcore/tests/test_territorial.cpp).
+Implementação distribuída em três camadas (sem efeito na campanha offline):
+- Lógica pura (`libs/netcore`, C++20 puro): [territorial.hpp](../libs/netcore/include/netcore/territorial.hpp) / [territorial.cpp](../libs/netcore/src/territorial.cpp), testes em [test_territorial.cpp](../libs/netcore/tests/test_territorial.cpp).
 - Protocolo `0xB1AC` (v4), regras de Supply Points e integração autoritativa Host/Cliente: [protocol.hpp](../libs/netcore/include/netcore/protocol.hpp), [protocol.cpp](../libs/netcore/src/protocol.cpp), [rules.hpp](../libs/netcore/include/netcore/rules.hpp), [rules.cpp](../libs/netcore/src/rules.cpp), [session.hpp](../libs/netcore/include/netcore/session.hpp), [session.cpp](../libs/netcore/src/session.cpp), testes e fuzzing em [test_netcore.cpp](../libs/netcore/tests/test_netcore.cpp).
+- Ponte do jogo, exportações WASM e Portal Web: [mp_bridge.h](../src/mp/mp_bridge.h), [mp_bridge.cpp](../src/mp/mp_bridge.cpp), [web_main.cpp](../src/web/web_main.cpp), [CMakeLists.txt](../CMakeLists.txt), [web/index.html](../web/index.html) e [web/app.js](../web/app.js) (`_BlackWebSetRoleMode`, `_BlackWebTerritorialAction`, seletor de modo, convite `?room=...&mode=ta`, HUD tático `#ta-hud`, Armaria `15 SP` e placar por time).
 Todos os valores abaixo são hipóteses de balanceamento e ficam em `ta::Config` / `RulesConfig::territorial_assault()`.
 
 Plataforma-alvo: recompilação do **Xbox NTSC-U** (não PS2). Equipamentos: somente armas e itens **nativos de BLACK**
@@ -34,5 +35,5 @@ Plataforma-alvo: recompilação do **Xbox NTSC-U** (não PS2). Equipamentos: som
 
 ## Próximos passos
 
-- Expor seleção de modo `Territorial Assault`, equipe e HUD territorial no portal web (`src/mp/mp_bridge.cpp`, `src/web/web_main.cpp`, `web/`).
-- Fase 2 em diante (coordenadas reais de mapas de BLACK, spawns validados por geometria e zonas de captura in-level) com base nos endereços validados do `default.xbe` NTSC-U.
+- Validar em playtest real de 2+ abas WebGPU (`tools/serve_web.py`) o ciclo completo do Territorial Assault (Lobby -> seleção de times -> Preparação 15 SP -> Rodada 1 -> Intervalo com inversão -> Rodada 2 -> Resultados) sobre o `default.xbe` NTSC-U.
+- Refinar zonas de captura e spawns específicos por missão (hoje derivados automaticamente da posição inicial + `kAliveList` da missão carregada) e adicionar marcadores visuais/sonoros 3D das zonas no viewport após calibrar coordenadas reais de cada fase.

@@ -79,6 +79,10 @@ public:
     // Atualiza os pontos de respawn da partida para coordenadas reais da fase sem alterar rules_hash_.
     void set_spawn_points(std::vector<SpawnPoint> spawns);
 
+    // Atualiza zonas de captura e spawns por função do Territorial Assault para coordenadas reais da fase (sem alterar rules_hash_).
+    void set_territorial_map(std::vector<CaptureZone> zones, std::vector<SpawnPoint> attacker_spawns,
+                             std::vector<SpawnPoint> defender_spawns);
+
     // Sincroniza fase ativa e máscara de armas nativas carregadas (sem alterar rules_hash_).
     void set_level_context(uint8_t arena_id, uint32_t available_weapon_mask);
 

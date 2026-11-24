@@ -20,6 +20,7 @@ enum class Role : uint8_t {
 
 struct HudPlayerRow {
     uint8_t player_id = 0;
+    uint8_t team = 0;
     bool occupied = false;
     bool alive = false;
     uint8_t health = 0;
@@ -62,6 +63,29 @@ struct BridgeTelemetry {
     uint8_t arena_id = 0;
     uint8_t game_mode = 0;
     uint32_t available_weapon_mask = 0xFFFFFFFFu;
+
+    // Telemetria específica do modo Territorial Assault (ta_active == false em Offline/PvP/Coop)
+    bool ta_active = false;
+    uint8_t ta_match_state = 0;
+    uint8_t ta_attacker_team = 0;
+    uint8_t ta_local_team = 0;
+    uint8_t ta_current_objective = 0;
+    uint8_t ta_objective_count = 2;
+    uint8_t ta_captured_count = 0;
+    uint8_t ta_current_obj_state = 0;
+    uint16_t ta_progress_permille = 0;
+    uint16_t ta_time_left_s = 0;
+    bool ta_overtime = false;
+    uint16_t ta_attacker_waves = 0;
+    uint16_t ta_defender_waves = 0;
+    uint8_t ta_winner_team = netcore::kNoPlayer;
+    uint8_t ta_r1_captured = 0;
+    uint16_t ta_r1_progress_permille = 0;
+    uint16_t ta_r1_time_s = 0;
+    uint8_t ta_r2_captured = 0;
+    uint16_t ta_r2_progress_permille = 0;
+    uint16_t ta_r2_time_s = 0;
+
     std::array<HudPlayerRow, netcore::kMaxPlayers> players{};
 };
 
@@ -77,12 +101,19 @@ bool StartClientUdp(const std::string& remote_host, uint16_t port = 45410, const
 bool StartHostWebRtc(const std::string& player_name = "Host",
                      bool cs_loadout = true,
                      bool fixed_budget = false,
-                     uint16_t budget_cap = 8000);
+                     uint16_t budget_cap = 8000,
+                     uint8_t game_mode = 0);
 bool StartClientWebRtc(const std::string& player_name = "Player",
                        uint32_t host_peer = 1,
                        bool cs_loadout = true,
                        bool fixed_budget = false,
-                       uint16_t budget_cap = 8000);
+                       uint16_t budget_cap = 8000,
+                       uint8_t game_mode = 0);
+
+// Controles específicos do modo Territorial Assault (Lobby / Preparação / Rodadas).
+bool SelectTerritorialTeam(uint8_t team);
+bool EnterTerritorialPreparation();
+bool BeginTerritorialRound();
 WebRtcTransport* ActiveWebRtcTransport();
 BridgeTelemetry GetTelemetry(const uint8_t* guest_base);
 

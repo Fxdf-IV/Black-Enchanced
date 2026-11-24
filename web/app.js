@@ -102,6 +102,46 @@ const BUY_RESULT_LABELS = [
   "Indisponível enquanto estiver abatido ou no fim da partida.",
 ];
 
+const TA_BUY_RESULT_LABELS = [
+  "Kit tático (15 SP) atualizado.",
+  "Supply Points (SP) insuficientes para este item.",
+  "Kit ultrapassa o limite fixo de 15 Supply Points (SP).",
+  "Item inválido — no Territorial Assault a arma primária é obrigatória.",
+  "Loadout bloqueado durante o combate (edite na Preparação ou Intervalo).",
+  "Indisponível enquanto estiver abatido ou no fim da partida.",
+];
+
+const TA_PHASE_LABELS = [
+  "LOBBY",
+  "PREPARAÇÃO",
+  "RODADA 1",
+  "INTERVALO",
+  "RODADA 2",
+  "RESULTADO",
+];
+
+function loadoutResultLabel(code, isTA) {
+  const list = isTA ? TA_BUY_RESULT_LABELS : BUY_RESULT_LABELS;
+  return list[code] || list[0];
+}
+
+function formatBudget(val, isTA) {
+  return isTA ? `${val} SP` : `$${val}`;
+}
+
+function formatClock(totalSeconds) {
+  const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
+function gameModeShortLabel(mode) {
+  if (mode === 2) return "TERRITORIAL";
+  if (mode === 1) return "CO-OP";
+  return "PVP ARENA";
+}
+
 function loadEnhancedPrefs() {
   const defaults = {
     mouseDirect: true,
@@ -151,10 +191,11 @@ const state = {
   serverManifest: null,
   catalog: DEFAULT_CATALOG,
   enhanced: loadEnhancedPrefs(),
-  roomRules: { csLoadout: true, fixedBudget: false, budgetCap: 8000 },
+  roomRules: { gameMode: 0, csLoadout: true, fixedBudget: false, budgetCap: 8000 },
   lastRebuyKit: null,
   lastLoadoutSnapshotKey: "",
   lastBuyHeaderKey: "",
+  lastCatalogGameMode: -1,
   pendingBuyCheck: null,
 };
 
@@ -257,6 +298,18 @@ function setBadge(id, text, level) {
 
 function isMultiplayerActive() {
   return state.role === "host" || state.role === "client";
+}
+
+function activeGameMode() {
+  if (!isMultiplayerActive()) return 0;
+  if (engine.status && typeof engine.status.gameMode === "number") {
+    return engine.status.gameMode;
+  }
+  return Number(state.roomRules.gameMode || 0);
+}
+
+function isTerritorialMode() {
+  return isMultiplayerActive() && activeGameMode() === 2;
 }
 
 function isInLevelNow() {
@@ -365,15 +418,24 @@ function switchLauncherTab(tab) {
 function updateViewportChrome() {
   const st = engine.status;
   const mp = isMultiplayerActive();
+  const isTA = isTerritorialMode();
   const inLvl = Boolean(st?.inLevel);
   const presenting = engine.bootStarted && Boolean(st && st.bootState >= 2 && (st.presents || 0) > 0);
   const gameCanvas = document.getElementById("game-canvas");
+  const wrap = document.getElementById("viewport-wrap");
   const locked = document.pointerLockElement === gameCanvas;
 
   // Loadout e placar só existem quando Multiplayer Online está ativo
-  document.getElementById("btn-open-buy")?.classList.toggle("hidden", !(mp && inLvl));
+  const buyTopBtn = document.getElementById("btn-open-buy");
+  if (buyTopBtn) {
+    buyTopBtn.classList.toggle("hidden", !(mp && inLvl));
+    buyTopBtn.textContent = isTA ? "Armaria 15 SP (B)" : "Loja Loadout (B)";
+  }
   document.getElementById("btn-open-buy-from-opt")?.classList.toggle("hidden", !(mp && inLvl));
   document.getElementById("hud-strip")?.classList.toggle("hidden", !(mp && inLvl && engine.activeOverlay === "none"));
+  const showTaHud = isTA && engine.bootStarted && engine.activeOverlay === "none" && Boolean(st?.ta);
+  document.getElementById("ta-hud")?.classList.toggle("hidden", !showTaHud);
+  wrap?.classList.toggle("ta-active", showTaHud);
   document.getElementById("menu-assist-bar")?.classList.toggle(
     "hidden",
     !(presenting && !inLvl && engine.activeOverlay === "none")
@@ -405,7 +467,7 @@ function updateViewportChrome() {
         item("Setas / WASD", "Navegar"),
         item("Backspace", "Voltar (B)"),
         item("F10", "Opções"),
-        mp ? item("B", "Loadout (na missão)") : "",
+        mp ? item("B", isTA ? "Armaria 15 SP (na missão)" : "Loadout (na missão)") : "",
       ].join("");
     } else if (mp) {
       footerKeys.innerHTML = [
@@ -413,7 +475,7 @@ function updateViewportChrome() {
         item("Mouse", "Mirar"),
         item("Esq/Dir", "Atirar / Zoom"),
         item("1 / 2 / Roda", "Arma"),
-        item("B", "Loja CS"),
+        item("B", isTA ? "Armaria 15 SP" : "Loja CS"),
         item("Tab", "Placar"),
         item("Esc", "Cursor"),
         item("F10", "Opções"),
@@ -453,14 +515,26 @@ async function detectBrowserCapabilities() {
   setBadge("cap-webrtc", typeof RTCPeerConnection !== "undefined" ? "P2P OK" : "SEM P2P", typeof RTCPeerConnection !== "undefined" ? "ok" : "warn");
 }
 
+function updateLauncherModeUi() {
+  const modeVal = Number(document.getElementById("mp-game-mode")?.value ?? state.roomRules.gameMode ?? 0);
+  const isTA = modeVal === 2;
+  document.getElementById("mp-cs-economy-row")?.classList.toggle("hidden", isTA);
+  document.getElementById("mp-ta-rules-note")?.classList.toggle("hidden", !isTA);
+}
+
 function readRoomConfigFromUi() {
+  const rawMode = Number(document.getElementById("mp-game-mode")?.value ?? 0);
+  const gameMode = rawMode === 1 || rawMode === 2 ? rawMode : 0;
   const ecoMode = document.getElementById("mp-economy-mode")?.value || "dynamic";
   const capVal = Number(document.getElementById("mp-budget-cap")?.value || 8000) || 8000;
+  const isTA = gameMode === 2;
   state.roomRules = {
+    gameMode,
     csLoadout: true,
-    fixedBudget: ecoMode === "fixed",
-    budgetCap: Math.max(450, Math.min(30000, capVal)),
+    fixedBudget: isTA ? true : ecoMode === "fixed",
+    budgetCap: isTA ? 15 : Math.max(450, Math.min(30000, capVal)),
   };
+  updateLauncherModeUi();
   return state.roomRules;
 }
 
@@ -473,6 +547,8 @@ function syncRoomFieldsToUi() {
   setVal("opt-room-code", state.roomCode);
   setVal("mp-player-name", state.playerName);
   setVal("opt-player-name", state.playerName);
+  setVal("mp-game-mode", String(state.roomRules.gameMode ?? 0));
+  updateLauncherModeUi();
 }
 
 function readIdentityFromInputs(preferOptionsModal = false) {
@@ -493,6 +569,10 @@ function readIdentityFromInputs(preferOptionsModal = false) {
 function buildInviteUrl() {
   const url = new URL(window.location.href);
   url.searchParams.set("room", state.roomCode);
+  const mode = Number(state.roomRules.gameMode ?? 0);
+  if (mode === 2) url.searchParams.set("mode", "ta");
+  else if (mode === 1) url.searchParams.set("mode", "coop");
+  else url.searchParams.delete("mode");
   return url.toString();
 }
 
@@ -601,53 +681,47 @@ function syncWasmRole(roleName) {
   if (!mod || !mod.ccall) return;
   engine.wasmClientConfiguredPeer = 0;
   const rules = state.roomRules;
-  if (mod._BlackWebSetRoleEx) {
-    if (roleName === "offline") {
+  const mode = Number(rules.gameMode || 0);
+  const callRole = (roleInt, hostPeer) => {
+    if (mod._BlackWebSetRoleMode) {
       mod.ccall(
-        "BlackWebSetRoleEx",
+        "BlackWebSetRoleMode",
         "number",
-        ["number", "string", "number", "number", "number", "number"],
-        [0, state.playerName, 0, 0, 0, 8000]
+        ["number", "string", "number", "number", "number", "number", "number"],
+        [roleInt, state.playerName, hostPeer, roleInt === 0 ? 0 : 1, rules.fixedBudget ? 1 : 0, rules.budgetCap, roleInt === 0 ? 0 : mode]
       );
-    } else if (roleName === "host") {
-      mod.ccall(
-        "BlackWebSetRoleEx",
-        "number",
-        ["number", "string", "number", "number", "number", "number"],
-        [1, state.playerName, 0, 1, rules.fixedBudget ? 1 : 0, rules.budgetCap]
-      );
-      if (state.transport) {
-        for (const peerId of state.transport.peers.keys()) {
-          mod._BlackWebPushIncomingNet(0, Number(peerId) >>> 0, 0, 0, 0);
-        }
-      }
-    } else if (roleName === "client") {
-      const hostPeer = Number(state.transport?.hostPeerId || 0) >>> 0;
-      if (hostPeer > 0) {
-        engine.wasmClientConfiguredPeer = hostPeer;
-        mod.ccall(
-          "BlackWebSetRoleEx",
-          "number",
-          ["number", "string", "number", "number", "number", "number"],
-          [2, state.playerName, hostPeer, 1, rules.fixedBudget ? 1 : 0, rules.budgetCap]
-        );
-        mod._BlackWebPushIncomingNet(0, hostPeer, 0, 0, 0);
-      }
+      return;
     }
-    return;
-  }
+    if (mod._BlackWebSetRoleEx) {
+      mod.ccall(
+        "BlackWebSetRoleEx",
+        "number",
+        ["number", "string", "number", "number", "number", "number"],
+        [roleInt, state.playerName, hostPeer, roleInt === 0 ? 0 : 1, rules.fixedBudget ? 1 : 0, rules.budgetCap]
+      );
+      return;
+    }
+    mod.ccall("BlackWebSetRole", "number", ["number", "string", "number"], [roleInt, state.playerName, hostPeer]);
+  };
 
   if (roleName === "offline") {
-    mod.ccall("BlackWebSetRole", "number", ["number", "string", "number"], [0, state.playerName, 0]);
+    callRole(0, 0);
   } else if (roleName === "host") {
-    mod.ccall("BlackWebSetRole", "number", ["number", "string", "number"], [1, state.playerName, 0]);
+    callRole(1, 0);
+    if (state.transport) {
+      for (const peerId of state.transport.peers.keys()) {
+        mod._BlackWebPushIncomingNet(0, Number(peerId) >>> 0, 0, 0, 0);
+      }
+    }
   } else if (roleName === "client") {
     const hostPeer = Number(state.transport?.hostPeerId || 0) >>> 0;
     if (hostPeer > 0) {
       engine.wasmClientConfiguredPeer = hostPeer;
-      mod.ccall("BlackWebSetRole", "number", ["number", "string", "number"], [2, state.playerName, hostPeer]);
+      callRole(2, hostPeer);
+      mod._BlackWebPushIncomingNet(0, hostPeer, 0, 0, 0);
     }
   }
+  refreshCatalogFromWasm();
 }
 
 function startSession(preferredRole, fromOptionsModal = false) {
@@ -694,17 +768,32 @@ function startSession(preferredRole, fromOptionsModal = false) {
 
 function handleTransportEvent(ev) {
   if (ev.type === "room_meta" && ev.meta) {
+    const prevMode = Number(state.roomRules.gameMode || 0);
+    const metaMode = Number(ev.meta.gameMode ?? 0);
+    const cleanMode = metaMode === 1 || metaMode === 2 ? metaMode : 0;
+    const isTA = cleanMode === 2;
     state.roomRules = {
+      gameMode: cleanMode,
       csLoadout: Boolean(ev.meta.csLoadout ?? true),
-      fixedBudget: Boolean(ev.meta.fixedBudget),
-      budgetCap: Number(ev.meta.budgetCap || 8000),
+      fixedBudget: isTA ? true : Boolean(ev.meta.fixedBudget),
+      budgetCap: isTA ? 15 : Number(ev.meta.budgetCap || 8000),
     };
+    const modeEl = document.getElementById("mp-game-mode");
     const ecoEl = document.getElementById("mp-economy-mode");
     const capEl = document.getElementById("mp-budget-cap");
+    if (modeEl) modeEl.value = String(cleanMode);
     if (ecoEl) ecoEl.value = state.roomRules.fixedBudget ? "fixed" : "dynamic";
     if (capEl) capEl.value = String(state.roomRules.budgetCap);
-    logLine("WEBRTC", `Regras da sala ${state.roomCode} recebidas (teto $${state.roomRules.budgetCap}).`);
+    updateLauncherModeUi();
+    logLine(
+      "WEBRTC",
+      `Regras da sala ${state.roomCode} recebidas (${gameModeShortLabel(cleanMode)}, teto ${formatBudget(state.roomRules.budgetCap, isTA)}).`
+    );
+    if (state.role === "client" && engine.module && prevMode !== cleanMode) {
+      syncWasmRole("client");
+    }
     updateTelemetryUi();
+    updateViewportChrome();
     return;
   }
 
@@ -781,6 +870,14 @@ function currentLoadoutNumbers() {
 function submitLoadoutPurchase(nextPrimary, nextSecondary, nextTactical) {
   if (!isMultiplayerActive() || !isInLevelNow()) return;
   const feedback = document.getElementById("buy-feedback");
+  const isTA = isTerritorialMode();
+  if (isTA && nextPrimary === NO_WEAPON) {
+    if (feedback) {
+      feedback.textContent = "Selecione primeiro uma arma primária (obrigatória no Territorial Assault, limite de 15 SP).";
+      feedback.dataset.tone = "err";
+    }
+    return;
+  }
   if (nextPrimary !== NO_WEAPON || nextTactical !== 0 || nextSecondary !== 0) {
     state.lastRebuyKit = { primary: nextPrimary, secondary: nextSecondary, tactical: nextTactical };
   }
@@ -819,7 +916,9 @@ function submitLoadoutPurchase(nextPrimary, nextSecondary, nextTactical) {
     pollWasmStatus();
     const cur = currentLoadoutNumbers();
     if (feedback) {
-      feedback.textContent = BUY_RESULT_LABELS[cur.lastResult] || (ok ? BUY_RESULT_LABELS[0] : "Compra recusada.");
+      feedback.textContent = ok && cur.lastResult === 0
+        ? loadoutResultLabel(0, isTA)
+        : loadoutResultLabel(cur.lastResult, isTA);
       feedback.dataset.tone = ok && cur.lastResult === 0 ? "ok" : "err";
     }
     renderBuyMenu(true);
@@ -827,18 +926,30 @@ function submitLoadoutPurchase(nextPrimary, nextSecondary, nextTactical) {
 }
 
 function updateBuyMenuHeader(cur) {
+  const isTA = isTerritorialMode();
+  const titleEl = document.getElementById("buy-modal-title");
   const creditsEl = document.getElementById("buy-credits-val");
   const capEl = document.getElementById("buy-cap-val");
   const kitEl = document.getElementById("buy-kit-cost-val");
   const winEl = document.getElementById("buy-window-val");
   const sumEl = document.getElementById("buy-current-kit");
 
-  if (creditsEl) creditsEl.textContent = `$${cur.credits}`;
-  if (capEl) capEl.textContent = `$${cur.maxCredits}`;
-  if (kitEl) kitEl.textContent = `$${cur.kitCost}`;
+  if (titleEl) {
+    titleEl.textContent = isTA
+      ? "Armaria Tática · Territorial Assault (15 Supply Points)"
+      : "Loja de Loadout CS · Equipamento com Limite";
+  }
+  const remaining = cur.fixedBudget ? Math.max(0, cur.maxCredits - cur.kitCost) : cur.credits;
+  if (creditsEl) creditsEl.textContent = formatBudget(remaining, isTA);
+  if (capEl) capEl.textContent = formatBudget(cur.maxCredits, isTA);
+  if (kitEl) kitEl.textContent = formatBudget(cur.kitCost, isTA);
   if (winEl) {
-    winEl.textContent =
-      cur.buyTicksLeft === 0xffff ? "LIVRE" : cur.buyTicksLeft > 0 ? `${Math.ceil(cur.buyTicksLeft / 30)}s` : "FECHADA";
+    if (isTA) {
+      winEl.textContent = cur.buyTicksLeft > 0 ? "PREP / INTERVALO" : "BLOQUEADO EM COMBATE";
+    } else {
+      winEl.textContent =
+        cur.buyTicksLeft === 0xffff ? "LIVRE" : cur.buyTicksLeft > 0 ? `${Math.ceil(cur.buyTicksLeft / 30)}s` : "FECHADA";
+    }
   }
 
   const extras = [];
@@ -864,7 +975,7 @@ function levelLabel(id) {
   return BLACK_LEVEL_NAMES[Number(id)] || `Fase #${Number(id) || 0}`;
 }
 
-function buildBuyButton({ hotkey, name, meta, price, equipped, affordable, available = true, onClick }) {
+function buildBuyButton({ hotkey, name, meta, price, isTA = false, equipped, affordable, available = true, onClick }) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = `buy-item${equipped ? " equipped" : ""}${available ? "" : " unavailable"}`;
@@ -890,7 +1001,7 @@ function buildBuyButton({ hotkey, name, meta, price, equipped, affordable, avail
 
   const right = document.createElement("span");
   right.className = "buy-item-price";
-  right.textContent = !available ? "N/D" : equipped ? "EQUIPADO" : price === 0 ? "GRÁTIS" : `$${price}`;
+  right.textContent = !available ? "N/D" : equipped ? "EQUIPADO" : price === 0 ? "GRÁTIS" : formatBudget(price, isTA);
 
   btn.append(left, right);
   btn.addEventListener("click", (e) => {
@@ -907,13 +1018,14 @@ function renderBuyMenu(forceButtons = false) {
   const colTac = document.getElementById("buy-col-tactical");
   if (!colSec || !colPri || !colTac) return;
 
+  const isTA = isTerritorialMode();
   const cur = currentLoadoutNumbers();
   updateBuyMenuHeader(cur);
 
   const windowOpen = cur.buyTicksLeft > 0;
   const availMask = state.catalog.availableMask ?? 0xffffffff;
   const engCnt = state.catalog.engineWeaponCount ?? 0;
-  const btnKey = `${cur.credits}-${cur.primary}-${cur.secondary}-${cur.tactical}-${cur.lastResult}-${windowOpen ? 1 : 0}-${cur.fixedBudget ? 1 : 0}-${state.catalog.weapons.length}-${availMask}-${engCnt}`;
+  const btnKey = `${cur.credits}-${cur.primary}-${cur.secondary}-${cur.tactical}-${cur.lastResult}-${windowOpen ? 1 : 0}-${cur.fixedBudget ? 1 : 0}-${isTA ? 1 : 0}-${state.catalog.weapons.length}-${availMask}-${engCnt}`;
   state.lastBuyHeaderKey = `${btnKey}-${Math.floor((cur.buyTicksLeft || 0) / 30)}`;
   if (!forceButtons && btnKey === state.lastLoadoutSnapshotKey && colPri.childElementCount > 0) {
     return;
@@ -937,6 +1049,7 @@ function renderBuyMenu(forceButtons = false) {
         name: w.name,
         meta: available ? `DMG ${w.damage} · MAG ${w.mag}${w.tag ? ` · ${w.tag}` : ""}` : "Indisponível nesta fase",
         price: w.price,
+        isTA,
         equipped,
         affordable,
         available,
@@ -956,6 +1069,7 @@ function renderBuyMenu(forceButtons = false) {
         name: w.name,
         meta: available ? `DMG ${w.damage} · ${w.mag} balas · ${w.range}m${w.tag ? ` · ${w.tag}` : ""}` : "Indisponível nesta fase",
         price: w.price,
+        isTA,
         equipped,
         affordable,
         available,
@@ -965,30 +1079,44 @@ function renderBuyMenu(forceButtons = false) {
   });
 
   const hasArmor = (cur.tactical & TACTICAL_ARMOR) !== 0;
-  const armorPrice = state.catalog.armorPrice || 650;
+  const armorPrice = state.catalog.armorPrice ?? (isTA ? 2 : 650);
+  const armorAffordable = windowOpen && (cur.fixedBudget ? (hasArmor || cur.kitCost + armorPrice <= cur.maxCredits) : armorPrice <= cur.credits);
   colTac.appendChild(
     buildBuyButton({
       hotkey: "",
       name: `Colete Balístico (+${state.catalog.armorBonus || 25} HP)`,
-      meta: "Proteção extra ao equipar e spawnar",
+      meta: cur.fixedBudget && hasArmor ? "Clique novamente para remover e liberar SP" : "Proteção extra ao equipar e spawnar",
       price: armorPrice,
+      isTA,
       equipped: hasArmor,
-      affordable: windowOpen && armorPrice <= cur.credits,
-      onClick: () => submitLoadoutPurchase(cur.primary, cur.secondary, cur.tactical | TACTICAL_ARMOR),
+      affordable: armorAffordable,
+      onClick: () =>
+        submitLoadoutPurchase(
+          cur.primary,
+          cur.secondary,
+          cur.fixedBudget && hasArmor ? (cur.tactical & ~TACTICAL_ARMOR) : (cur.tactical | TACTICAL_ARMOR)
+        ),
     })
   );
 
   const hasPack = (cur.tactical & TACTICAL_PACK) !== 0;
-  const tacPrice = state.catalog.tacticalPrice || 300;
+  const tacPrice = state.catalog.tacticalPrice ?? (isTA ? 1 : 300);
+  const tacAffordable = windowOpen && (cur.fixedBudget ? (hasPack || cur.kitCost + tacPrice <= cur.maxCredits) : tacPrice <= cur.credits);
   colTac.appendChild(
     buildBuyButton({
       hotkey: "",
       name: "Pacote Tático (Silenciador / Granada)",
-      meta: "Acopla silenciador na arma equipada",
+      meta: cur.fixedBudget && hasPack ? "Clique novamente para remover e liberar SP" : "Acopla silenciador na arma equipada",
       price: tacPrice,
+      isTA,
       equipped: hasPack,
-      affordable: windowOpen && tacPrice <= cur.credits,
-      onClick: () => submitLoadoutPurchase(cur.primary, cur.secondary, cur.tactical | TACTICAL_PACK),
+      affordable: tacAffordable,
+      onClick: () =>
+        submitLoadoutPurchase(
+          cur.primary,
+          cur.secondary,
+          cur.fixedBudget && hasPack ? (cur.tactical & ~TACTICAL_PACK) : (cur.tactical | TACTICAL_PACK)
+        ),
     })
   );
 }
@@ -1286,7 +1414,7 @@ function pollWasmStatus() {
       const feedback = document.getElementById("buy-feedback");
       if (changed) {
         if (feedback) {
-          feedback.textContent = BUY_RESULT_LABELS[cur.lastResult] || BUY_RESULT_LABELS[0];
+          feedback.textContent = loadoutResultLabel(cur.lastResult, isTerritorialMode());
           feedback.dataset.tone = cur.lastResult === 0 ? "ok" : "err";
         }
         state.pendingBuyCheck = null;
@@ -1302,14 +1430,17 @@ function pollWasmStatus() {
     const maskVal = st.availableWeaponMask ?? 0xffffffff;
     const engCnt = st.engineWeaponCount ?? 0;
     const inLvl = Boolean(st.inLevel);
+    const gmVal = st.gameMode ?? 0;
     if (
       state.lastCatalogMask !== maskVal ||
       state.lastCatalogEngineCount !== engCnt ||
-      state.lastCatalogInLevel !== inLvl
+      state.lastCatalogInLevel !== inLvl ||
+      state.lastCatalogGameMode !== gmVal
     ) {
       state.lastCatalogMask = maskVal;
       state.lastCatalogEngineCount = engCnt;
       state.lastCatalogInLevel = inLvl;
+      state.lastCatalogGameMode = gmVal;
       refreshCatalogFromWasm();
       if (engine.activeOverlay === "buy") {
         renderBuyMenu(true);
@@ -1318,7 +1449,8 @@ function pollWasmStatus() {
 
     if (engine.activeOverlay === "buy") {
       const buyOpen = (st.buyTicksLeft || 0) > 0 ? 1 : 0;
-      const btnKey = `${st.credits}-${st.primaryWeapon}-${st.secondaryWeapon}-${st.tacticalFlags}-${st.lastLoadoutResult}-${buyOpen}-${st.fixedBudget ? 1 : 0}-${state.catalog.weapons.length}-${maskVal}-${engCnt}`;
+      const isTA = gmVal === 2;
+      const btnKey = `${st.credits}-${st.primaryWeapon}-${st.secondaryWeapon}-${st.tacticalFlags}-${st.lastLoadoutResult}-${buyOpen}-${st.fixedBudget ? 1 : 0}-${isTA ? 1 : 0}-${state.catalog.weapons.length}-${maskVal}-${engCnt}`;
       const hdrKey = `${btnKey}-${Math.floor((st.buyTicksLeft || 0) / 30)}`;
       if (btnKey !== state.lastLoadoutSnapshotKey) {
         renderBuyMenu(false);
@@ -1363,21 +1495,146 @@ function startEngineTickLoop() {
   if (!engine.saveSyncTimerId) engine.saveSyncTimerId = setInterval(() => flushCampaignSaveIdbfs(false), 2500);
 }
 
+function renderTerritorialHud(st) {
+  const hud = document.getElementById("ta-hud");
+  if (!hud || !isTerritorialMode() || !st?.ta) return;
+
+  const ta = st.ta;
+  const isHost = state.role === "host";
+  const phase = Number(ta.state || 0);
+  const localTeam = Number(ta.localTeam || 0);
+  const atkTeam = Number(ta.attackerTeam || 0);
+  const isAttacker = localTeam === atkTeam;
+
+  hud.dataset.role = phase === 2 || phase === 4 ? (isAttacker ? "atk" : "def") : "neutral";
+
+  const phaseEl = document.getElementById("ta-phase-pill");
+  if (phaseEl) phaseEl.textContent = TA_PHASE_LABELS[phase] || "TERRITORIAL";
+
+  const roleEl = document.getElementById("ta-role-pill");
+  if (roleEl) {
+    const teamLabel = localTeam === 0 ? "TIME A" : "TIME B";
+    const sideLabel = isAttacker ? "ATAQUE" : "DEFESA";
+    roleEl.textContent = `${teamLabel} · ${sideLabel}`;
+    roleEl.dataset.side = isAttacker ? "atk" : "def";
+  }
+
+  const clockEl = document.getElementById("ta-clock");
+  if (clockEl) {
+    clockEl.textContent = ta.overtime ? `OT ${formatClock(ta.timeLeft)}` : formatClock(ta.timeLeft);
+    clockEl.classList.toggle("overtime", Boolean(ta.overtime));
+  }
+
+  const atkWavesEl = document.getElementById("ta-atk-waves");
+  const defWavesEl = document.getElementById("ta-def-waves");
+  if (atkWavesEl) atkWavesEl.textContent = String(ta.atkWaves ?? 0);
+  if (defWavesEl) defWavesEl.textContent = String(ta.defWaves ?? 0);
+
+  const objsEl = document.getElementById("ta-objs");
+  if (objsEl) {
+    const count = Math.max(0, Math.min(8, Number(ta.objCount || 0)));
+    const curIdx = Number(ta.currentObj || 0);
+    const capCount = Number(ta.captured || 0);
+    const objState = Number(ta.objState || 0);
+    const letters = "ABCDEFGH";
+    let html = "";
+    for (let i = 0; i < count; i++) {
+      let cls = "ta-obj-chip";
+      if (i < capCount) cls += " captured";
+      else if (i === curIdx && (phase === 2 || phase === 4)) {
+        cls += objState === 2 ? " contested" : " active";
+      }
+      html += `<span class="${cls}">${letters[i] || i + 1}</span>`;
+    }
+    if (objsEl.dataset.key !== html) {
+      objsEl.dataset.key = html;
+      objsEl.innerHTML = html;
+    }
+  }
+
+  const progWrap = document.getElementById("ta-progress-wrap");
+  const progLabel = document.getElementById("ta-progress-label");
+  const progFill = document.getElementById("ta-progress-fill");
+  const progPct = document.getElementById("ta-progress-pct");
+  const inActiveRound = phase === 2 || phase === 4;
+  if (progWrap) progWrap.classList.toggle("hidden", !inActiveRound);
+  if (inActiveRound) {
+    const pct = Math.max(0, Math.min(100, Math.round(Number(ta.progress || 0) / 10)));
+    const objLetter = "ABCDEFGH"[Number(ta.currentObj || 0)] || "A";
+    const contested = Number(ta.objState || 0) === 2;
+    if (progLabel) progLabel.textContent = contested ? `OBJ ${objLetter} · CONTESTADO` : `OBJ ${objLetter}`;
+    if (progFill) {
+      progFill.style.width = `${pct}%`;
+      progFill.classList.toggle("contested", contested);
+    }
+    if (progPct) progPct.textContent = `${pct}%`;
+  }
+
+  const actionsRow = document.getElementById("ta-actions-row");
+  const actionsInfo = document.getElementById("ta-actions-info");
+  const btnTeamA = document.getElementById("btn-ta-team-a");
+  const btnTeamB = document.getElementById("btn-ta-team-b");
+  const btnBuy = document.getElementById("btn-ta-buy");
+  const btnPrep = document.getElementById("btn-ta-prep");
+  const btnStart = document.getElementById("btn-ta-start-round");
+
+  const showActions = !inActiveRound;
+  if (actionsRow) actionsRow.classList.toggle("hidden", !showActions);
+  if (showActions) {
+    if (btnTeamA) {
+      btnTeamA.classList.toggle("hidden", phase !== 0);
+      btnTeamA.classList.toggle("active", localTeam === 0);
+    }
+    if (btnTeamB) {
+      btnTeamB.classList.toggle("hidden", phase !== 0);
+      btnTeamB.classList.toggle("active", localTeam === 1);
+    }
+    if (btnBuy) {
+      btnBuy.classList.toggle("hidden", !(phase === 1 || phase === 3));
+    }
+    if (btnPrep) {
+      btnPrep.classList.toggle("hidden", !(isHost && phase === 0));
+    }
+    if (btnStart) {
+      btnStart.classList.toggle("hidden", !(isHost && (phase === 1 || phase === 3)));
+      btnStart.textContent = phase === 3 ? "Iniciar Rodada 2" : "Iniciar Rodada 1";
+    }
+    if (actionsInfo) {
+      if (phase === 0) {
+        actionsInfo.textContent = isHost
+          ? "Lobby: escolha times (Esc libera cursor) e clique em Iniciar Preparação."
+          : "Lobby: escolha Time A ou Time B (Esc libera cursor). Aguardando Host.";
+      } else if (phase === 1) {
+        actionsInfo.textContent = "Preparação R1: monte seu kit de 15 SP em [B] (primária obrigatória).";
+      } else if (phase === 3) {
+        actionsInfo.textContent = "Intervalo: papéis invertidos! Ajuste seu kit de 15 SP em [B] para a Rodada 2.";
+      } else if (phase === 5) {
+        const winTxt = ta.winner === 0 ? "VITÓRIA TIME A" : ta.winner === 1 ? "VITÓRIA TIME B" : "EMPATE";
+        actionsInfo.textContent = `${winTxt} · R1: ${ta.r1Cap} obj (${Math.round((ta.r1Prog || 0) / 10)}%, ${formatClock(ta.r1Time)}) · R2: ${ta.r2Cap} obj (${Math.round((ta.r2Prog || 0) / 10)}%, ${formatClock(ta.r2Time)})`;
+      }
+    }
+  }
+}
+
 function updateTelemetryUi() {
   const st = engine.status;
   const topPill = document.getElementById("top-role-pill");
   const peers = st?.peers ?? (state.transport?.peers?.size || 0);
+  const mode = activeGameMode();
+  const isTA = mode === 2;
 
   if (topPill) {
     if (state.role === "offline") {
       topPill.textContent = "CAMPANHA SOLO";
     } else if (state.role === "host") {
+      const mTag = mode === 0 ? "" : ` · ${gameModeShortLabel(mode)}`;
       topPill.textContent = st?.inLevel
-        ? `HOST · ${state.roomCode} · ${levelLabel(st.arenaId)} · ${peers + 1} jog.`
-        : `HOST · ${state.roomCode} · ${peers + 1} jog.`;
+        ? `HOST${mTag} · ${state.roomCode} · ${levelLabel(st.arenaId)} · ${peers + 1} jog.`
+        : `HOST${mTag} · ${state.roomCode} · ${peers + 1} jog.`;
     } else {
+      const mTag = mode === 0 ? "" : ` · ${gameModeShortLabel(mode)}`;
       topPill.textContent = st?.clientJoined
-        ? `ONLINE · ${state.roomCode} · ${levelLabel(st.arenaId)}`
+        ? `ONLINE${mTag} · ${state.roomCode} · ${levelLabel(st.arenaId)}`
         : `ENTRANDO · ${state.roomCode}`;
     }
     topPill.dataset.mode = state.role;
@@ -1390,20 +1647,25 @@ function updateTelemetryUi() {
   const playMpBtn = document.getElementById("btn-play-mp");
   const joinedOrHosting = state.role === "host" || (state.role === "client" && (peers > 0 || st?.clientJoined));
   if (lobbyBox) lobbyBox.dataset.ready = String(joinedOrHosting);
-  if (lobbyPeers) lobbyPeers.textContent = state.role === "offline" ? "0 par(es)" : `${peers} par(es) · $${state.roomRules.budgetCap}`;
+  if (lobbyPeers) {
+    lobbyPeers.textContent =
+      state.role === "offline"
+        ? "0 par(es)"
+        : `${peers} par(es) · ${gameModeShortLabel(mode)} · ${formatBudget(state.roomRules.budgetCap, isTA)}`;
+  }
   if (lobbyText) {
     if (state.role === "offline") {
       lobbyText.textContent = "Crie uma sala como Host ou entre com o código do amigo para liberar a partida.";
     } else if (state.role === "host") {
       lobbyText.textContent =
         peers > 0
-          ? `Sala ${state.roomCode} pronta com ${peers} amigo(s) conectado(s)! Todos podem clicar em Iniciar e escolher a Missão 1.`
-          : `Sala ${state.roomCode} aberta (Host). Envie o link de convite (?room=${state.roomCode}) ou inicie enquanto aguarda.`;
+          ? `Sala ${state.roomCode} (${gameModeShortLabel(mode)}) pronta com ${peers} amigo(s)! Todos podem clicar em Iniciar e escolher a Missão 1.`
+          : `Sala ${state.roomCode} aberta (${gameModeShortLabel(mode)}). Envie o link de convite ou inicie enquanto aguarda.`;
     } else {
       const arenaTxt = st?.clientJoined ? levelLabel(st.arenaId) : "Missão 1 · Streets";
       lobbyText.textContent =
         peers > 0 || st?.clientJoined
-          ? `Conectado à sala ${state.roomCode}! Fase ativa do Host: ${arenaTxt}. Clique em Iniciar e selecione a mesma missão.`
+          ? `Conectado à sala ${state.roomCode} (${gameModeShortLabel(mode)})! Fase ativa do Host: ${arenaTxt}. Clique em Iniciar e selecione a mesma missão.`
           : `Procurando host da sala ${state.roomCode}...`;
     }
   }
@@ -1419,9 +1681,9 @@ function updateTelemetryUi() {
       state.role === "offline"
         ? "Modo atual: Campanha Solo (sem multiplayer ou loja)."
         : state.role === "host"
-          ? `Modo atual: Host da sala ${state.roomCode} · ${peers} par(es) · Teto $${state.roomRules.budgetCap}.`
+          ? `Modo atual: Host (${gameModeShortLabel(mode)}) · Sala ${state.roomCode} · ${peers} par(es) · Teto ${formatBudget(state.roomRules.budgetCap, isTA)}.`
           : st?.clientJoined || peers > 0
-            ? `Modo atual: Conectado à sala ${state.roomCode} (${peers} par).`
+            ? `Modo atual: Conectado (${gameModeShortLabel(mode)}) · Sala ${state.roomCode} (${peers} par).`
             : `Modo atual: Procurando host da sala ${state.roomCode}...`;
   }
 
@@ -1435,10 +1697,18 @@ function updateTelemetryUi() {
     const hudSec = document.getElementById("hud-slot-secondary");
     const hudTac = document.getElementById("hud-tactical");
     if (hudHp) hudHp.textContent = String(st?.hp ?? 100);
-    if (hudCr) hudCr.textContent = `$${cur.credits} / $${cur.maxCredits}`;
+    if (hudCr) {
+      hudCr.textContent = isTA
+        ? `KIT ${cur.kitCost} / ${cur.maxCredits} SP`
+        : `$${cur.credits} / $${cur.maxCredits}`;
+    }
     if (hudBw) {
-      hudBw.textContent =
-        cur.buyTicksLeft === 0xffff ? "LOJA LIVRE" : cur.buyTicksLeft > 0 ? `COMPRA ${Math.ceil(cur.buyTicksLeft / 30)}s` : "COMPRA FECHADA";
+      if (isTA) {
+        hudBw.textContent = cur.buyTicksLeft > 0 ? "ARMARIA ABERTA" : "KIT TRAVADO";
+      } else {
+        hudBw.textContent =
+          cur.buyTicksLeft === 0xffff ? "LOJA LIVRE" : cur.buyTicksLeft > 0 ? `COMPRA ${Math.ceil(cur.buyTicksLeft / 30)}s` : "COMPRA FECHADA";
+      }
     }
     if (hudPri) {
       hudPri.textContent = `[1] ${weaponNameById(cur.primary)}`;
@@ -1454,6 +1724,7 @@ function updateTelemetryUi() {
       if (cur.tactical & TACTICAL_PACK) tList.push("SILENCIADOR");
       hudTac.textContent = tList.join(" · ");
     }
+    renderTerritorialHud(st);
   }
 
   // Gaveta Técnica
@@ -1488,9 +1759,37 @@ function updateScoreboard() {
   const tbody = document.getElementById("overlay-score-body");
   if (!tbody || !isMultiplayerActive()) return;
   const st = engine.status;
+  const isTA = isTerritorialMode();
+  const modeTag = document.getElementById("score-mode-tag");
+  if (modeTag) modeTag.textContent = `${gameModeShortLabel(activeGameMode())} · WEBRTC P2P`;
+
+  const banner = document.getElementById("ta-score-banner");
+  if (banner) {
+    if (isTA && st?.ta) {
+      const ta = st.ta;
+      const phaseName = TA_PHASE_LABELS[Number(ta.state || 0)] || "TERRITORIAL";
+      const winTxt =
+        ta.state === 5
+          ? ta.winner === 0
+            ? " · VITÓRIA TIME A"
+            : ta.winner === 1
+              ? " · VITÓRIA TIME B"
+              : " · EMPATE"
+          : "";
+      banner.classList.remove("hidden");
+      banner.dataset.ready = String(ta.state === 5);
+      banner.innerHTML = `<span>${phaseName}${winTxt} · ATK ${ta.atkWaves} ondas · DEF ${ta.defWaves} ondas</span><span class="mono">R1: ${ta.r1Cap} obj (${formatClock(ta.r1Time)}) | R2: ${ta.r2Cap} obj (${formatClock(ta.r2Time)})</span>`;
+    } else {
+      banner.classList.add("hidden");
+    }
+  }
+
   const localId = st?.localSlot ?? state.localPlayerId;
   const rows = Array.isArray(st?.players)
-    ? [...st.players].sort((a, b) => b.kills - a.kills || a.id - b.id)
+    ? [...st.players].sort((a, b) => {
+        if (isTA && (a.team ?? 0) !== (b.team ?? 0)) return (a.team ?? 0) - (b.team ?? 0);
+        return b.kills - a.kills || a.id - b.id;
+      })
     : [];
   tbody.innerHTML = "";
   for (const op of rows) {
@@ -1498,10 +1797,13 @@ function updateScoreboard() {
       op.primary !== undefined && op.primary !== NO_WEAPON
         ? `${weaponNameById(op.primary)} + ${weaponNameById(op.secondary)}`
         : weaponNameById(op.secondary ?? op.weapon ?? 0);
+    const teamTag = isTA
+      ? `<span class="team-tag ${(op.team ?? 0) === 0 ? "team-a" : "team-b"}">${(op.team ?? 0) === 0 ? "TIME A" : "TIME B"}</span>`
+      : "";
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td class="mono">#${op.id}</td>
-      <td>${op.name}${op.id === localId ? " (VOCÊ)" : ""}</td>
+      <td>${teamTag}${op.name}${op.id === localId ? " (VOCÊ)" : ""}</td>
       <td class="mono">${op.alive ? `${op.hp} HP` : "MORTO"}</td>
       <td class="mono">${loadoutTxt}</td>
       <td class="mono">${op.kills}</td>
@@ -1752,9 +2054,20 @@ async function handlePickedLocalFiles(fileList) {
 function applyRoomFromUrl() {
   try {
     const qs = new URLSearchParams(window.location.search);
+    const modeParam = (qs.get("mode") || "").trim().toLowerCase();
+    if (modeParam === "ta" || modeParam === "territorial" || modeParam === "2") {
+      state.roomRules.gameMode = 2;
+      state.roomRules.fixedBudget = true;
+      state.roomRules.budgetCap = 15;
+    } else if (modeParam === "coop" || modeParam === "1") {
+      state.roomRules.gameMode = 1;
+    }
     const asHost = qs.has("host");
     const param = qs.get("room") || qs.get("host");
-    if (!param) return;
+    if (!param) {
+      syncRoomFieldsToUi();
+      return;
+    }
     const clean = param.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
     if (clean.length !== 6) {
       switchLauncherTab("mp");
@@ -1766,8 +2079,8 @@ function applyRoomFromUrl() {
     switchLauncherTab("mp");
     showToast(
       asHost
-        ? `Sala ${clean} preenchida. Clique em "Criar Sala (Host)"!`
-        : `Convite detectado para sala ${clean}. Clique em "Entrar na Sala"!`,
+        ? `Sala ${clean} (${gameModeShortLabel(state.roomRules.gameMode)}) preenchida. Clique em "Criar Sala (Host)"!`
+        : `Convite detectado para sala ${clean} (${gameModeShortLabel(state.roomRules.gameMode)}). Clique em "Entrar na Sala"!`,
       3800,
     );
   } catch {}
@@ -1941,6 +2254,45 @@ function bindEvents() {
   });
 
   // Multiplayer Sala & Convite (Launcher + Modal Opções)
+  document.getElementById("mp-game-mode")?.addEventListener("change", () => {
+    readRoomConfigFromUi();
+  });
+  document.getElementById("btn-ta-team-a")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    if (engine.module?._BlackWebTerritorialAction?.(0, 0)) {
+      showToast("Você entrou no Time A.");
+      pollWasmStatus();
+    }
+  });
+  document.getElementById("btn-ta-team-b")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    if (engine.module?._BlackWebTerritorialAction?.(0, 1)) {
+      showToast("Você entrou no Time B.");
+      pollWasmStatus();
+    }
+  });
+  document.getElementById("btn-ta-buy")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    toggleBuyOverlay();
+  });
+  document.getElementById("btn-ta-prep")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    if (engine.module?._BlackWebTerritorialAction?.(1, 0)) {
+      showToast("Preparação iniciada! Todos podem montar o kit de 15 SP em [B].");
+      pollWasmStatus();
+    } else {
+      showToast("Necessário pelo menos 1 jogador em cada time (Time A e Time B) para iniciar.", 3600);
+    }
+  });
+  document.getElementById("btn-ta-start-round")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    if (engine.module?._BlackWebTerritorialAction?.(2, 0)) {
+      showToast("Rodada Territorial Assault iniciada!");
+      pollWasmStatus();
+    } else {
+      showToast("Não foi possível iniciar a rodada agora.", 3000);
+    }
+  });
   document.getElementById("btn-mp-host")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();
     startSession("host", false);

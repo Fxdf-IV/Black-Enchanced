@@ -306,13 +306,36 @@ int32_t BlackWebSetRoleEx(uint32_t role, const char* player_name, uint32_t host_
     const std::string name = (player_name && player_name[0]) ? std::string(player_name) : std::string("Player");
     const uint16_t cap = static_cast<uint16_t>(std::clamp<uint32_t>(budget_cap, 450u, 30000u));
     if (role == 1) {
-        return mp::StartHostWebRtc(name, cs_loadout != 0, fixed_budget != 0, cap) ? 1 : 0;
+        return mp::StartHostWebRtc(name, cs_loadout != 0, fixed_budget != 0, cap, 0u) ? 1 : 0;
     }
     if (role == 2) {
-        return mp::StartClientWebRtc(name, host_peer ? host_peer : 1u, cs_loadout != 0, fixed_budget != 0, cap) ? 1 : 0;
+        return mp::StartClientWebRtc(name, host_peer ? host_peer : 1u, cs_loadout != 0, fixed_budget != 0, cap, 0u) ? 1 : 0;
     }
     mp::SetRole(mp::Role::OfflineCampaign);
     return 1;
+}
+
+int32_t BlackWebSetRoleMode(uint32_t role, const char* player_name, uint32_t host_peer, uint32_t cs_loadout,
+                            uint32_t fixed_budget, uint32_t budget_cap, uint32_t game_mode) {
+    mp::StopMultiplayer();
+    const std::string name = (player_name && player_name[0]) ? std::string(player_name) : std::string("Player");
+    const uint8_t mode = (game_mode <= 2u) ? static_cast<uint8_t>(game_mode) : 0u;
+    const uint16_t cap = (mode == 2u) ? 15u : static_cast<uint16_t>(std::clamp<uint32_t>(budget_cap, 450u, 30000u));
+    if (role == 1) {
+        return mp::StartHostWebRtc(name, cs_loadout != 0, fixed_budget != 0, cap, mode) ? 1 : 0;
+    }
+    if (role == 2) {
+        return mp::StartClientWebRtc(name, host_peer ? host_peer : 1u, cs_loadout != 0, fixed_budget != 0, cap, mode) ? 1 : 0;
+    }
+    mp::SetRole(mp::Role::OfflineCampaign);
+    return 1;
+}
+
+int32_t BlackWebTerritorialAction(uint32_t action, uint32_t arg) {
+    if (action == 0u) return mp::SelectTerritorialTeam(static_cast<uint8_t>(arg & 1u)) ? 1 : 0;
+    if (action == 1u) return mp::EnterTerritorialPreparation() ? 1 : 0;
+    if (action == 2u) return mp::BeginTerritorialRound() ? 1 : 0;
+    return 0;
 }
 
 void BlackWebSetEnhancedConfig(uint32_t mouse_direct, float mouse_sens, float ads_mult, uint32_t invert_y,
@@ -458,7 +481,7 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
     const std::string escaped = escape_json(msg);
 
     std::string json;
-    json.reserve(1024);
+    json.reserve(2048);
     char hdr[768];
     const int hdr_len = std::snprintf(
         hdr, sizeof(hdr),
@@ -507,14 +530,35 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
         char prow[256];
         const int plen = std::snprintf(
             prow, sizeof(prow),
-            "{\"id\":%u,\"name\":\"%s\",\"alive\":%s,\"hp\":%u,\"kills\":%u,\"deaths\":%u,\"weapon\":%u,\"primary\":%u,\"secondary\":%u,\"tactical\":%u}",
-            static_cast<unsigned>(p.player_id), pname.c_str(), p.alive ? "true" : "false",
+            "{\"id\":%u,\"team\":%u,\"name\":\"%s\",\"alive\":%s,\"hp\":%u,\"kills\":%u,\"deaths\":%u,\"weapon\":%u,\"primary\":%u,\"secondary\":%u,\"tactical\":%u}",
+            static_cast<unsigned>(p.player_id), static_cast<unsigned>(p.team), pname.c_str(), p.alive ? "true" : "false",
             static_cast<unsigned>(p.health), static_cast<int>(p.kills), static_cast<int>(p.deaths),
             static_cast<unsigned>(p.weapon), static_cast<unsigned>(p.primary_weapon),
             static_cast<unsigned>(p.secondary_weapon), static_cast<unsigned>(p.tactical_flags));
         if (plen > 0) json.append(prow, static_cast<std::size_t>(std::min<int>(plen, sizeof(prow) - 1)));
     }
-    json += "]}";
+    if (tel.ta_active) {
+        char tabuf[384];
+        const int talen = std::snprintf(
+            tabuf, sizeof(tabuf),
+            "],\"ta\":{\"state\":%u,\"attackerTeam\":%u,\"localTeam\":%u,\"currentObj\":%u,\"objCount\":%u,"
+            "\"captured\":%u,\"objState\":%u,\"progress\":%u,\"timeLeft\":%u,\"overtime\":%s,"
+            "\"atkWaves\":%u,\"defWaves\":%u,\"winner\":%u,"
+            "\"r1Cap\":%u,\"r1Prog\":%u,\"r1Time\":%u,\"r2Cap\":%u,\"r2Prog\":%u,\"r2Time\":%u}}",
+            static_cast<unsigned>(tel.ta_match_state), static_cast<unsigned>(tel.ta_attacker_team),
+            static_cast<unsigned>(tel.ta_local_team), static_cast<unsigned>(tel.ta_current_objective),
+            static_cast<unsigned>(tel.ta_objective_count), static_cast<unsigned>(tel.ta_captured_count),
+            static_cast<unsigned>(tel.ta_current_obj_state), static_cast<unsigned>(tel.ta_progress_permille),
+            static_cast<unsigned>(tel.ta_time_left_s), tel.ta_overtime ? "true" : "false",
+            static_cast<unsigned>(tel.ta_attacker_waves), static_cast<unsigned>(tel.ta_defender_waves),
+            static_cast<unsigned>(tel.ta_winner_team), static_cast<unsigned>(tel.ta_r1_captured),
+            static_cast<unsigned>(tel.ta_r1_progress_permille), static_cast<unsigned>(tel.ta_r1_time_s),
+            static_cast<unsigned>(tel.ta_r2_captured), static_cast<unsigned>(tel.ta_r2_progress_permille),
+            static_cast<unsigned>(tel.ta_r2_time_s));
+        if (talen > 0) json.append(tabuf, static_cast<std::size_t>(std::min<int>(talen, sizeof(tabuf) - 1)));
+    } else {
+        json += "]}";
+    }
 
     const uint32_t out_n = std::min<uint32_t>(static_cast<uint32_t>(json.size()), max_len - 1u);
     if (out_n > 0) std::memcpy(out_buf, json.data(), out_n);

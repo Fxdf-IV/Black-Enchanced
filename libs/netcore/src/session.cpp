@@ -336,6 +336,36 @@ void HostSession::set_spawn_points(std::vector<SpawnPoint> spawns) {
     rules_.spawns = std::move(spawns);
 }
 
+void HostSession::set_territorial_map(std::vector<CaptureZone> zones, std::vector<SpawnPoint> attacker_spawns,
+                                      std::vector<SpawnPoint> defender_spawns) {
+    if (!zones.empty() && zones.size() <= kMaxTerritorialObjectives) {
+        bool ok = true;
+        for (const auto& z : zones) {
+            if (!std::isfinite(z.center.x) || !std::isfinite(z.center.y) || !std::isfinite(z.center.z) ||
+                !std::isfinite(z.radius) || !std::isfinite(z.half_height) || z.radius <= 0.0f ||
+                z.half_height <= 0.0f) {
+                ok = false;
+                break;
+            }
+        }
+        if (ok) {
+            rules_.objective_zones = std::move(zones);
+        }
+    }
+    auto valid_spawns = [](const std::vector<SpawnPoint>& sps) {
+        if (sps.empty() || sps.size() > kMaxSpawnPoints) return false;
+        for (const auto& sp : sps) {
+            if (!std::isfinite(sp.position.x) || !std::isfinite(sp.position.y) ||
+                !std::isfinite(sp.position.z) || !std::isfinite(sp.yaw)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (valid_spawns(attacker_spawns)) rules_.attacker_spawns = std::move(attacker_spawns);
+    if (valid_spawns(defender_spawns)) rules_.defender_spawns = std::move(defender_spawns);
+}
+
 void HostSession::set_local_player_state(const PlayerState& state) {
     auto& s = slots_[0];
     if ((s.flags & kFlagAlive) == 0) return;

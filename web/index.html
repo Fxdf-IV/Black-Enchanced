@@ -890,6 +890,211 @@
       color: var(--accent);
     }
 
+    /* HUD Tático do modo Territorial Assault (exclusivo quando gameMode === 2) */
+    .viewport-wrap.ta-active .ptr-hint {
+      top: auto;
+      bottom: 58px;
+    }
+
+    .ta-hud {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 14;
+      width: min(720px, calc(100% - 24px));
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      background: rgba(9, 10, 13, 0.9);
+      border: 1px solid var(--border-strong);
+      border-top: 2px solid var(--accent);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .ta-hud[data-role="atk"] {
+      border-top-color: var(--err);
+    }
+
+    .ta-hud[data-role="def"] {
+      border-top-color: #38bdf8;
+    }
+
+    .ta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .ta-phase-pill {
+      padding: 2px 7px;
+      border-radius: 2px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .ta-role-pill {
+      padding: 2px 7px;
+      border-radius: 2px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .ta-role-pill[data-side="atk"] {
+      background: rgba(239, 68, 68, 0.16);
+      border: 1px solid rgba(239, 68, 68, 0.5);
+      color: #fca5a5;
+    }
+
+    .ta-role-pill[data-side="def"] {
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      color: #7dd3fc;
+    }
+
+    .ta-clock {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: 0.06em;
+    }
+
+    .ta-clock.overtime {
+      color: var(--err);
+    }
+
+    .ta-objs {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .ta-obj-chip {
+      min-width: 24px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 2px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-base);
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+    }
+
+    .ta-obj-chip.captured {
+      border-color: rgba(16, 185, 129, 0.6);
+      background: rgba(16, 185, 129, 0.18);
+      color: #6ee7b7;
+    }
+
+    .ta-obj-chip.active {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .ta-obj-chip.contested {
+      border-color: var(--err);
+      background: rgba(239, 68, 68, 0.22);
+      color: #fca5a5;
+    }
+
+    .ta-waves {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+    }
+
+    .ta-waves strong {
+      color: var(--text-primary);
+    }
+
+    .ta-progress-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ta-progress-track {
+      flex: 1;
+      height: 6px;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .ta-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 120ms linear;
+    }
+
+    .ta-progress-fill.contested {
+      background: var(--err);
+    }
+
+    .ta-actions-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-top: 4px;
+      border-top: 1px solid var(--border);
+    }
+
+    .team-tag {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .team-tag.team-a {
+      background: rgba(239, 68, 68, 0.16);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      color: #fca5a5;
+    }
+
+    .team-tag.team-b {
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      color: #7dd3fc;
+    }
+
+    .ta-rules-note {
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      background: var(--bg-base);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+
+    .ta-rules-note strong {
+      color: var(--accent);
+    }
+
     /* Faixa discreta de controles abaixo do palco */
     .viewport-footer {
       display: flex;
@@ -1074,6 +1279,40 @@
         Clique no jogo para travar mira · Esc libera o cursor · F10 Opções
       </div>
 
+      <!-- HUD Territorial Assault (EXCLUSIVO quando gameMode === 2) -->
+      <div id="ta-hud" class="ta-hud hidden" data-role="neutral">
+        <div class="ta-row">
+          <div class="hud-group">
+            <span id="ta-phase-pill" class="ta-phase-pill">LOBBY</span>
+            <span id="ta-role-pill" class="ta-role-pill" data-side="atk">TIME A · ATAQUE</span>
+          </div>
+          <span id="ta-clock" class="ta-clock">04:00</span>
+          <div id="ta-objs" class="ta-objs"></div>
+          <div class="ta-waves">
+            <span>ATK <strong id="ta-atk-waves">3</strong></span>
+            <span>·</span>
+            <span>DEF <strong id="ta-def-waves">4</strong></span>
+          </div>
+        </div>
+        <div id="ta-progress-wrap" class="ta-progress-wrap hidden">
+          <span id="ta-progress-label" style="color: var(--text-secondary); white-space: nowrap;">OBJ A</span>
+          <div class="ta-progress-track">
+            <div id="ta-progress-fill" class="ta-progress-fill"></div>
+          </div>
+          <span id="ta-progress-pct" style="color: var(--text-primary); min-width: 34px; text-align: right;">0%</span>
+        </div>
+        <div id="ta-actions-row" class="ta-actions-row hidden">
+          <div id="ta-actions-info" style="color: var(--text-secondary);">Escolha seu time antes de iniciar.</div>
+          <div class="hud-group">
+            <button id="btn-ta-team-a" class="hud-chip hidden" type="button">Time A</button>
+            <button id="btn-ta-team-b" class="hud-chip hidden" type="button">Time B</button>
+            <button id="btn-ta-buy" class="hud-chip hidden" type="button">[B] Kit 15 SP</button>
+            <button id="btn-ta-prep" class="hud-chip active hidden" type="button">Iniciar Preparação</button>
+            <button id="btn-ta-start-round" class="hud-chip active hidden" type="button">Iniciar Rodada</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Barra discreta durante telas de título e menus do Xbox (!inLevel) -->
       <div id="menu-assist-bar" class="menu-assist-bar hidden">
         <div class="hud-group">
@@ -1184,7 +1423,16 @@
               </div>
             </div>
 
-            <div class="form-2col">
+            <div class="field">
+              <label for="mp-game-mode">Modo Multiplayer</label>
+              <select id="mp-game-mode">
+                <option value="0" selected>PvP Arena · Loadout estilo CS</option>
+                <option value="2">Territorial Assault · Push 2 Rodadas · 15 SP + Ondas</option>
+                <option value="1">Campanha Co-op · Equipe vs IA</option>
+              </select>
+            </div>
+
+            <div id="mp-cs-economy-row" class="form-2col">
               <div class="field">
                 <label for="mp-economy-mode">Economia da Loja CS</label>
                 <select id="mp-economy-mode">
@@ -1201,6 +1449,10 @@
                   <option value="16000">$16.000 (Livre)</option>
                 </select>
               </div>
+            </div>
+
+            <div id="mp-ta-rules-note" class="ta-rules-note hidden">
+              <strong>Territorial Assault:</strong> 2 rodadas com inversão Ataque/Defesa, objetivos sequenciais (A → B), ondas coletivas de reforço e <strong>15 Supply Points (SP)</strong> fixos (armas nativas de BLACK; primária obrigatória).
             </div>
 
             <div id="mp-lobby-status" class="lobby-box" data-ready="false">
@@ -1377,7 +1629,7 @@
       <div id="overlay-buy" class="modal-overlay hidden">
         <div class="modal-card">
           <div class="modal-head">
-            <span class="modal-title">Loja de Loadout CS · Equipamento com Limite</span>
+            <span id="buy-modal-title" class="modal-title">Loja de Loadout CS · Equipamento com Limite</span>
             <div class="btn-row">
               <button id="btn-rebuy-kit" class="btn btn-sm" type="button">Recomprar [F1]</button>
               <button id="btn-close-buy" class="btn btn-primary btn-sm" type="button">Voltar ao Combate [B]</button>
@@ -1424,6 +1676,7 @@
             <span class="modal-title">Placar da Sala Online</span>
             <span class="role-pill" id="score-mode-tag">WEBRTC P2P</span>
           </div>
+          <div id="ta-score-banner" class="lobby-box hidden"></div>
           <table>
             <thead>
               <tr>

@@ -239,9 +239,17 @@ void ResetLevelState() {
     g_client_tick_origin_tp = {};
 }
 
-netcore::RulesConfig BuildActiveRules(bool cs_loadout, bool fixed_budget, uint16_t budget_cap) {
+netcore::RulesConfig BuildActiveRules(bool cs_loadout, bool fixed_budget, uint16_t budget_cap, uint8_t game_mode = 0) {
+    if (game_mode == static_cast<uint8_t>(netcore::GameMode::TerritorialAssault)) {
+        netcore::RulesConfig cfg = netcore::RulesConfig::territorial_assault();
+        return cfg;
+    }
     netcore::RulesConfig cfg = cs_loadout ? netcore::RulesConfig::cs_loadout_deathmatch()
                                           : netcore::RulesConfig::default_deathmatch();
+    if (game_mode == static_cast<uint8_t>(netcore::GameMode::Coop)) {
+        cfg.game_mode = netcore::GameMode::Coop;
+        cfg.friendly_fire = false;
+    }
     // 20 minutos para partidas web sem interrupção prematura durante navegação/duelos.
     cfg.time_limit_s = 1200;
     cfg.fixed_budget_mode = fixed_budget;
@@ -825,8 +833,49 @@ void InitializeLevelContextIfReady(const uint8_t* base) {
             }
         }
         spawn_count = spawns.size();
-        g_host_session->set_spawn_points(std::move(spawns));
-        g_host_session->start_match();
+        if (g_host_session->rules().game_mode == netcore::GameMode::TerritorialAssault) {
+            // Ordena pontos reais da fase pela distância a partir do início da missão para posicionar
+            // spawns de ataque, Objetivos A/B sequenciais e spawns de defesa na geometria real do mapa.
+            std::vector<netcore::SpawnPoint> sorted = spawns;
+            std::sort(sorted.begin(), sorted.end(), [&](const netcore::SpawnPoint& a, const netcore::SpawnPoint& b) {
+                const float da = (a.position.x - px) * (a.position.x - px) + (a.position.z - pz) * (a.position.z - pz);
+                const float db = (b.position.x - px) * (b.position.x - px) + (b.position.z - pz) * (b.position.z - pz);
+                return da < db;
+            });
+            std::vector<netcore::SpawnPoint> atk_spawns;
+            std::vector<netcore::SpawnPoint> def_spawns;
+            std::vector<netcore::CaptureZone> zones;
+            atk_spawns.push_back(sorted[0]);
+            if (sorted.size() >= 2) atk_spawns.push_back(sorted[1]);
+
+            const float fwd_x = std::sin(safe_yaw);
+            const float fwd_z = std::cos(safe_yaw);
+            if (sorted.size() >= 5) {
+                const std::size_t idx_a = sorted.size() * 2 / 5;
+                const std::size_t idx_b = sorted.size() * 4 / 5;
+                zones.push_back(netcore::CaptureZone{sorted[idx_a].position, 7.5f, 5.0f});
+                zones.push_back(netcore::CaptureZone{sorted[idx_b].position, 7.5f, 5.0f});
+                def_spawns.push_back(sorted[sorted.size() - 1]);
+                def_spawns.push_back(sorted[sorted.size() - 2]);
+            } else {
+                zones.push_back(netcore::CaptureZone{
+                    netcore::Vec3{px + fwd_x * 14.0f, py, pz + fwd_z * 14.0f}, 7.5f, 5.0f});
+                zones.push_back(netcore::CaptureZone{
+                    netcore::Vec3{px + fwd_x * 28.0f, py, pz + fwd_z * 28.0f}, 7.5f, 5.0f});
+                def_spawns.push_back(netcore::SpawnPoint{
+                    netcore::Vec3{px + fwd_x * 36.0f, py, pz + fwd_z * 36.0f}, opp_yaw});
+                def_spawns.push_back(netcore::SpawnPoint{
+                    netcore::Vec3{px + fwd_x * 38.0f, py, pz + fwd_z * 38.0f}, opp_yaw});
+            }
+            g_host_session->set_spawn_points(std::move(spawns));
+            g_host_session->set_territorial_map(std::move(zones), std::move(atk_spawns), std::move(def_spawns));
+            if (!g_host_session->territorial_match() && g_host_session->player_count() >= 2) {
+                (void)g_host_session->enter_preparation();
+            }
+        } else {
+            g_host_session->set_spawn_points(std::move(spawns));
+            g_host_session->start_match();
+        }
     }
 
     g_level_spawns_initialized = true;
@@ -1050,39 +1099,75 @@ bool StartClientUdp(const std::string& remote_host, uint16_t port, const std::st
 #endif
 }
 
-bool StartHostWebRtc(const std::string& player_name, bool cs_loadout, bool fixed_budget, uint16_t budget_cap) {
+bool StartHostWebRtc(const std::string& player_name, bool cs_loadout, bool fixed_budget, uint16_t budget_cap,
+                     uint8_t game_mode) {
     std::lock_guard<std::recursive_mutex> lk(g_bridge_mu);
     StopMultiplayer();
     g_active_player_name = player_name.empty() ? "Host" : player_name;
     g_webrtc_transport = std::make_unique<WebRtcTransport>();
-    g_host_session = std::make_unique<netcore::HostSession>(
-        *g_webrtc_transport, BuildActiveRules(cs_loadout, fixed_budget, budget_cap), g_active_player_name);
-    g_host_session->start_match();
+    const auto rules = BuildActiveRules(cs_loadout, fixed_budget, budget_cap, game_mode);
+    g_host_session = std::make_unique<netcore::HostSession>(*g_webrtc_transport, rules, g_active_player_name);
+    if (rules.game_mode != netcore::GameMode::TerritorialAssault) {
+        g_host_session->start_match();
+    }
     g_role = Role::Host;
-    if (cs_loadout) {
+    if (cs_loadout || rules.game_mode == netcore::GameMode::TerritorialAssault) {
         g_pending_weapon_apply = true;
         g_pending_equip_slot = 0;
     }
-    LOGR("mp_bridge: WebRTC host session ready (%s, cs_loadout=%d, fixed=%d, cap=%u)",
-         g_active_player_name.c_str(), cs_loadout ? 1 : 0, fixed_budget ? 1 : 0, static_cast<unsigned>(budget_cap));
+    LOGR("mp_bridge: WebRTC host session ready (%s, mode=%u, cs_loadout=%d, fixed=%d, cap=%u)",
+         g_active_player_name.c_str(), static_cast<unsigned>(game_mode), cs_loadout ? 1 : 0, fixed_budget ? 1 : 0,
+         static_cast<unsigned>(budget_cap));
     return true;
 }
 
 bool StartClientWebRtc(const std::string& player_name, uint32_t host_peer, bool cs_loadout, bool fixed_budget,
-                       uint16_t budget_cap) {
+                       uint16_t budget_cap, uint8_t game_mode) {
     std::lock_guard<std::recursive_mutex> lk(g_bridge_mu);
     StopMultiplayer();
     g_active_player_name = player_name.empty() ? "Player" : player_name;
     g_webrtc_transport = std::make_unique<WebRtcTransport>();
     g_webrtc_transport->push_incoming_connected(host_peer);
     g_client_session = std::make_unique<netcore::ClientSession>(
-        *g_webrtc_transport, host_peer, BuildActiveRules(cs_loadout, fixed_budget, budget_cap), g_active_player_name);
+        *g_webrtc_transport, host_peer, BuildActiveRules(cs_loadout, fixed_budget, budget_cap, game_mode),
+        g_active_player_name);
     g_client_session->send_hello();
     g_role = Role::Client;
-    LOGR("mp_bridge: WebRTC client connecting to peer=%u (%s, cs_loadout=%d, fixed=%d, cap=%u)",
-         host_peer, g_active_player_name.c_str(), cs_loadout ? 1 : 0, fixed_budget ? 1 : 0,
-         static_cast<unsigned>(budget_cap));
+    LOGR("mp_bridge: WebRTC client connecting to peer=%u (%s, mode=%u, cs_loadout=%d, fixed=%d, cap=%u)",
+         host_peer, g_active_player_name.c_str(), static_cast<unsigned>(game_mode), cs_loadout ? 1 : 0,
+         fixed_budget ? 1 : 0, static_cast<unsigned>(budget_cap));
     return true;
+}
+
+bool SelectTerritorialTeam(uint8_t team) {
+    std::lock_guard<std::recursive_mutex> lk(g_bridge_mu);
+    const auto t = (team == 0u) ? netcore::ta::Team::A : netcore::ta::Team::B;
+    if (g_role == Role::Host && g_host_session) {
+        return g_host_session->set_player_team(0, t);
+    }
+    if (g_role == Role::Client && g_client_session) {
+        return g_client_session->send_team_select(t);
+    }
+    return false;
+}
+
+bool EnterTerritorialPreparation() {
+    std::lock_guard<std::recursive_mutex> lk(g_bridge_mu);
+    if (g_role == Role::Host && g_host_session) {
+        return g_host_session->enter_preparation();
+    }
+    return false;
+}
+
+bool BeginTerritorialRound() {
+    std::lock_guard<std::recursive_mutex> lk(g_bridge_mu);
+    if (g_role == Role::Host && g_host_session) {
+        if (!g_host_session->territorial_match()) {
+            if (!g_host_session->enter_preparation()) return false;
+        }
+        return g_host_session->begin_next_round();
+    }
+    return false;
 }
 
 WebRtcTransport* ActiveWebRtcTransport() {
@@ -1133,6 +1218,7 @@ BridgeTelemetry GetTelemetry(const uint8_t* guest_base) {
             const auto sls = g_host_session->slot_loadout_state(static_cast<uint8_t>(i));
             t.players[i] = HudPlayerRow{
                 .player_id = s.player_id,
+                .team = s.team,
                 .occupied = s.occupied,
                 .alive = (s.flags & netcore::kFlagAlive) != 0,
                 .health = s.health,
@@ -1144,6 +1230,29 @@ BridgeTelemetry GetTelemetry(const uint8_t* guest_base) {
                 .deaths = s.deaths,
                 .name = s.name,
             };
+        }
+        if (g_host_session->rules().game_mode == netcore::GameMode::TerritorialAssault) {
+            const auto ta = g_host_session->current_territorial_state();
+            t.ta_active = true;
+            t.ta_match_state = ta.match_state;
+            t.ta_attacker_team = ta.attacker_team;
+            t.ta_local_team = slots[0].team;
+            t.ta_current_objective = ta.current_objective;
+            t.ta_objective_count = ta.objective_count;
+            t.ta_captured_count = ta.captured_count;
+            t.ta_current_obj_state = ta.current_obj_state;
+            t.ta_progress_permille = ta.progress_permille;
+            t.ta_time_left_s = ta.time_left_s;
+            t.ta_overtime = ta.overtime != 0;
+            t.ta_attacker_waves = ta.attacker_waves;
+            t.ta_defender_waves = ta.defender_waves;
+            t.ta_winner_team = ta.winner_team;
+            t.ta_r1_captured = ta.r1_captured;
+            t.ta_r1_progress_permille = ta.r1_progress_permille;
+            t.ta_r1_time_s = ta.r1_time_s;
+            t.ta_r2_captured = ta.r2_captured;
+            t.ta_r2_progress_permille = ta.r2_progress_permille;
+            t.ta_r2_time_s = ta.r2_time_s;
         }
     } else if (g_role == Role::Client && g_client_session) {
         t.local_slot = g_client_session->local_player_id();
@@ -1160,10 +1269,39 @@ BridgeTelemetry GetTelemetry(const uint8_t* guest_base) {
         t.tactical_flags = ls.tactical_flags;
         t.last_loadout_result = ls.last_result;
         t.credits = ls.credits;
-        t.max_credits = ls.max_credits > 0 ? ls.max_credits : 8000;
+        const bool is_ta_client = (t.game_mode == static_cast<uint8_t>(netcore::GameMode::TerritorialAssault));
+        t.max_credits = ls.max_credits > 0 ? ls.max_credits : (is_ta_client ? 15u : 8000u);
         t.kit_cost = ls.kit_cost;
         t.buy_ticks_left = ls.buy_ticks_left;
-        t.enforce_loadout = ls.max_credits > 0;
+        t.fixed_budget_mode = is_ta_client;
+        t.enforce_loadout = ls.max_credits > 0 || is_ta_client;
+
+        const auto& opt_ta = g_client_session->latest_territorial_state();
+        if (t.game_mode == static_cast<uint8_t>(netcore::GameMode::TerritorialAssault) && opt_ta.has_value()) {
+            const auto& ta = *opt_ta;
+            t.ta_active = true;
+            t.ta_match_state = ta.match_state;
+            t.ta_attacker_team = ta.attacker_team;
+            t.ta_local_team = (t.local_slot < netcore::kMaxPlayers && ta.player_teams[t.local_slot] <= 1u)
+                                  ? ta.player_teams[t.local_slot]
+                                  : 0u;
+            t.ta_current_objective = ta.current_objective;
+            t.ta_objective_count = ta.objective_count;
+            t.ta_captured_count = ta.captured_count;
+            t.ta_current_obj_state = ta.current_obj_state;
+            t.ta_progress_permille = ta.progress_permille;
+            t.ta_time_left_s = ta.time_left_s;
+            t.ta_overtime = ta.overtime != 0;
+            t.ta_attacker_waves = ta.attacker_waves;
+            t.ta_defender_waves = ta.defender_waves;
+            t.ta_winner_team = ta.winner_team;
+            t.ta_r1_captured = ta.r1_captured;
+            t.ta_r1_progress_permille = ta.r1_progress_permille;
+            t.ta_r1_time_s = ta.r1_time_s;
+            t.ta_r2_captured = ta.r2_captured;
+            t.ta_r2_progress_permille = ta.r2_progress_permille;
+            t.ta_r2_time_s = ta.r2_time_s;
+        }
 
         for (const auto& sp : g_client_session->latest_snapshot().players) {
             if (sp.player_id >= netcore::kMaxPlayers) continue;
@@ -1178,8 +1316,12 @@ BridgeTelemetry GetTelemetry(const uint8_t* guest_base) {
                 roster_name = (sp.player_id == t.local_slot) ? g_active_player_name
                                                              : ("Player " + std::to_string(sp.player_id));
             }
+            const uint8_t pteam = (opt_ta.has_value() && opt_ta->player_teams[sp.player_id] <= 1u)
+                                      ? opt_ta->player_teams[sp.player_id]
+                                      : 0u;
             t.players[sp.player_id] = HudPlayerRow{
                 .player_id = sp.player_id,
+                .team = pteam,
                 .occupied = true,
                 .alive = (sp.flags & netcore::kFlagAlive) != 0,
                 .health = sp.health,
@@ -1278,6 +1420,9 @@ std::string GetWeaponCatalogJson(const uint8_t* guest_base) {
         arena_id = g_client_session->active_arena_id();
         game_mode = g_client_session->game_mode();
         session_mask = g_client_session->available_weapon_mask();
+        if (game_mode == static_cast<uint8_t>(netcore::GameMode::TerritorialAssault)) {
+            rules = netcore::RulesConfig::territorial_assault();
+        }
     }
     uint32_t def_count = 0;
     uint8_t c2e[16]{};
