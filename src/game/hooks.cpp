@@ -33,13 +33,15 @@ X86_FUNC(sub_000C4570) {
     const uint32_t player = ctx.esi;
     __imp__sub_000C4570(ctx, base);
     const uint32_t mode = common::g_skip_cutscenes.load(std::memory_order_relaxed);
-    if (mode != common::kSkipOff && player >= 0x10000u && black::R8(base, player + 0x62u) == 0u) {
+    const bool mp_direct = mp::IsDirectMapLaunchPending();
+    if ((mode != common::kSkipOff || mp_direct) && player >= 0x10000u && black::R8(base, player + 0x62u) == 0u) {
         static std::atomic<uint32_t> logged{0};
         if (logged.fetch_add(1) < 8u) {
-            LOGI("skip_cutscenes: forcando fim do filme XMV (player=0x%08X, modo=%u)", player, mode);
+            LOGI("skip_cutscenes: forcando fim do filme XMV (player=0x%08X, modo=%u, mp_direct=%d)",
+                 player, mode, mp_direct ? 1 : 0);
         }
         black::W8(base, player + 0x62u, 1u);
-        if (mode == common::kSkipOnce) {
+        if (!mp_direct && mode == common::kSkipOnce) {
             uint32_t expected = common::kSkipOnce;
             common::g_skip_cutscenes.compare_exchange_strong(expected, common::kSkipOff);
         }
@@ -84,7 +86,9 @@ X86_FUNC(sub_0020F6A0) {
         const bool load_ready = (stream_mgr >= 0x10000u) ? (black::R8(base, stream_mgr + 0x62u) != 0) : true;
         const common::EnhancedConfig cfg = common::GetEnhancedConfig();
         const bool user_skip = common::ShouldSkipCurrentMovie();
-        const bool auto_skip = (cfg.skip_intro && g_active_movie_is_intro.load(std::memory_order_relaxed));
+        const bool auto_skip =
+            (cfg.skip_intro && g_active_movie_is_intro.load(std::memory_order_relaxed)) ||
+            mp::IsDirectMapLaunchPending();
 
         if ((user_skip || auto_skip) && load_ready) {
             black::W8(base, movie_ctrl + 0x1B8u, 0);

@@ -109,6 +109,20 @@ uint8_t g_pending_slot_switch = 0;
 uint32_t g_last_weapon_def_dump_lvl = 0xFFFFFFFFu;
 std::string g_active_player_name = "Operador";
 
+// Estado de pré-lobby / carregamento direto de mapa (usado apenas no Multiplayer; nunca afeta Campanha Solo).
+std::atomic<bool> g_direct_launch_pending{false};
+bool g_prematch_configured = false;
+uint8_t g_prematch_mission_idx = 0;
+uint8_t g_prematch_team = 0;
+uint8_t g_prematch_primary = 7;    // AK-47 padrão nativo
+uint8_t g_prematch_secondary = 0;  // Glock 19
+uint8_t g_prematch_tactical = 0;
+uint32_t g_direct_launch_fe_frames = 0;
+bool g_prematch_team_applied = false;
+bool g_prematch_kit_applied = false;
+uint32_t g_host_auto_round_frames = 0;
+bool g_host_auto_round_started = false;
+
 float clamp_angle_rad(float rad) {
     if (!std::isfinite(rad)) return 0.0f;
     rad = std::fmod(rad, 6.28318530f);
@@ -869,7 +883,7 @@ void InitializeLevelContextIfReady(const uint8_t* base) {
             }
             g_host_session->set_spawn_points(std::move(spawns));
             g_host_session->set_territorial_map(std::move(zones), std::move(atk_spawns), std::move(def_spawns));
-            if (!g_host_session->territorial_match() && g_host_session->player_count() >= 2) {
+            if (!g_prematch_configured && !g_host_session->territorial_match() && g_host_session->player_count() >= 2) {
                 (void)g_host_session->enter_preparation();
             }
         } else {
@@ -1652,6 +1666,44 @@ void StopMultiplayer() {
     ResetLevelState();
     g_client_join_logged = false;
     g_last_client_hello_frame = 0;
+    g_direct_launch_pending.store(false, std::memory_order_release);
+    g_prematch_configured = false;
+    g_direct_launch_fe_frames = 0;
+    g_prematch_team_applied = false;
+    g_prematch_kit_applied = false;
+    g_host_auto_round_frames = 0;
+    g_host_auto_round_started = false;
+}
+
+void ConfigurePreMatchLaunch(uint8_t mission_idx, uint8_t local_team, uint8_t primary_weapon,
+                             uint8_t secondary_weapon, uint8_t tactical_flags) {
+    std::lock_guard<std::recursive_mutex> lk(g_bridge_mu);
+    if (g_role == Role::OfflineCampaign) return;
+    g_prematch_configured = true;
+    g_prematch_mission_idx = static_cast<uint8_t>(mission_idx & 7u);
+    g_prematch_team = static_cast<uint8_t>(local_team & 1u);
+    g_prematch_primary = primary_weapon;
+    g_prematch_secondary = secondary_weapon;
+    g_prematch_tactical = tactical_flags;
+    g_direct_launch_fe_frames = 0;
+    g_prematch_team_applied = false;
+    g_prematch_kit_applied = false;
+    g_host_auto_round_frames = 0;
+    g_host_auto_round_started = false;
+    g_direct_launch_pending.store(true, std::memory_order_release);
+    if (g_role == Role::Host && g_host_session) {
+        g_host_session->set_player_team(0, g_prematch_team == 0u ? netcore::ta::Team::A : netcore::ta::Team::B);
+        g_prematch_team_applied = true;
+    }
+    LOGR("mp_bridge: pre-match launch configured (mission=%u internal=%u team=%u kit=%u/%u/0x%02X)",
+         static_cast<unsigned>(g_prematch_mission_idx),
+         static_cast<unsigned>(black::kMissionInternalLevelIds[g_prematch_mission_idx]),
+         static_cast<unsigned>(g_prematch_team), static_cast<unsigned>(g_prematch_primary),
+         static_cast<unsigned>(g_prematch_secondary), static_cast<unsigned>(g_prematch_tactical));
+}
+
+bool IsDirectMapLaunchPending() {
+    return g_role != Role::OfflineCampaign && g_direct_launch_pending.load(std::memory_order_acquire);
 }
 
 bool IsClientJoined() {
@@ -1679,6 +1731,68 @@ void OnPreFrame(uint8_t* guest_base) {
                       g_remote_actor_va[2] != 0 || g_remote_actor_va[3] != 0)) {
         ResetLevelState();
     }
+
+    // Carregamento direto do mapa escolhido no pré-lobby: assim que o FrontEnd (game+0x20220) estabilizar,
+    // dispara o gatilho oficial de transição (sub_001132E0 -> FE+0x3880..0x3888 -> sub_0020DCA0) sem menu Xbox.
+    if (!in_level && g_direct_launch_pending.load(std::memory_order_acquire)) {
+        const uint32_t game = IsGuestCommitted(black::kGame, 4) ? black::R32(guest_base, black::kGame) : 0u;
+        const uint32_t fe = IsGuestCommitted(black::kFrontEnd, 4) ? black::R32(guest_base, black::kFrontEnd) : 0u;
+        if (IsGuestCommitted(game, 0x21080) && IsGuestCommitted(fe, 0x3910) &&
+            black::R32(guest_base, game + black::kGameState) == game + black::kFrontEndState) {
+            ++g_direct_launch_fe_frames;
+            if (g_direct_launch_fe_frames == 12u ||
+                (g_direct_launch_fe_frames > 12u && (g_direct_launch_fe_frames % 120u) == 0u)) {
+                const uint8_t internal_lvl = black::kMissionInternalLevelIds[g_prematch_mission_idx & 7u];
+                black::W8(guest_base, game + black::kGameTargetLevel, internal_lvl);
+                black::W8(guest_base, game + black::kGameTargetDiff, 1u);
+                black::W8(guest_base, game + black::kGameTargetUnit, 1u);
+                black::W32(guest_base, fe + black::kFeNextState, game + black::kInLevelState);
+                black::W32(guest_base, fe + black::kFeTriggerA, 1u);
+                black::W32(guest_base, fe + black::kFeTriggerB, 1u);
+                LOGR("mp_bridge: direct map launch triggered (mission=%u internal=%u fe_frames=%u)",
+                     static_cast<unsigned>(g_prematch_mission_idx), static_cast<unsigned>(internal_lvl),
+                     g_direct_launch_fe_frames);
+            }
+        }
+    } else if (in_level && g_direct_launch_pending.load(std::memory_order_acquire)) {
+        g_direct_launch_pending.store(false, std::memory_order_release);
+        LOGR("mp_bridge: direct map launch arrived in-level (mission=%u)",
+             static_cast<unsigned>(g_prematch_mission_idx));
+    }
+
+    auto apply_prematch_kit = [&](uint32_t avail_mask) {
+        const netcore::RulesConfig ta_rules = netcore::RulesConfig::territorial_assault();
+        uint8_t prim = g_prematch_primary;
+        uint8_t sec = g_prematch_secondary;
+        uint8_t tact = g_prematch_tactical;
+        auto is_avail = [&](uint8_t wid) {
+            return wid < 32u && (avail_mask & (1u << wid)) != 0;
+        };
+        if (sec != netcore::kNoWeapon && !is_avail(sec)) sec = 0;
+        if (prim == netcore::kNoWeapon || !is_avail(prim)) {
+            prim = netcore::kNoWeapon;
+            for (const auto& w : ta_rules.weapons) {
+                if (w.slot == netcore::WeaponSlot::Primary && is_avail(w.id) && w.price <= ta_rules.max_credits) {
+                    prim = w.id;
+                    break;
+                }
+            }
+        }
+        auto kit_cost = [&](uint8_t p, uint8_t s, uint8_t t) -> uint32_t {
+            uint32_t c = 0;
+            if (const auto* wp = ta_rules.find_weapon(p)) c += wp->price;
+            if (const auto* ws = ta_rules.find_weapon(s)) c += ws->price;
+            if (t & netcore::kLoadoutArmor) c += ta_rules.armor_price;
+            if (t & netcore::kLoadoutTactical) c += ta_rules.tactical_price;
+            return c;
+        };
+        if (kit_cost(prim, sec, tact) > ta_rules.max_credits) tact &= static_cast<uint8_t>(~netcore::kLoadoutTactical);
+        if (kit_cost(prim, sec, tact) > ta_rules.max_credits) tact &= static_cast<uint8_t>(~netcore::kLoadoutArmor);
+        if (kit_cost(prim, sec, tact) > ta_rules.max_credits) sec = 0;
+        if (prim != netcore::kNoWeapon) {
+            (void)BuyLoadout(prim, sec, tact);
+        }
+    };
 
     if (g_role == Role::Host && g_host_session) {
         if (in_level && !g_level_spawns_initialized) {
@@ -1719,6 +1833,53 @@ void OnPreFrame(uint8_t* guest_base) {
                                          ? black::R8(guest_base, world + black::kWorldLevel)
                                          : 0u;
             g_host_session->set_level_context(arena_id, mask);
+            // Fluxo automático do Pré-Lobby Territorial Assault: aplica time/kit pré-escolhidos e inicia Rodada 1.
+            if (g_prematch_configured &&
+                g_host_session->rules().game_mode == netcore::GameMode::TerritorialAssault) {
+                if (!g_prematch_team_applied) {
+                    g_host_session->set_player_team(0, g_prematch_team == 0u ? netcore::ta::Team::A : netcore::ta::Team::B);
+                    g_prematch_team_applied = true;
+                }
+                if (!g_host_session->territorial_match()) {
+                    const std::size_t expected_players =
+                        1u + (g_webrtc_transport ? g_webrtc_transport->peer_count() : 0u);
+                    const auto& sl = g_host_session->slots();
+                    int cnt_a = 0, cnt_b = 0;
+                    for (const auto& s : sl) {
+                        if (!s.occupied) continue;
+                        if (s.team == 0) ++cnt_a;
+                        else ++cnt_b;
+                    }
+                    if (g_host_session->player_count() >= expected_players && cnt_a > 0 && cnt_b > 0) {
+                        (void)g_host_session->enter_preparation();
+                    }
+                }
+                if (g_host_session->territorial_match() &&
+                    g_host_session->territorial_match()->state() == netcore::ta::MatchState::Preparation) {
+                    if (!g_prematch_kit_applied) {
+                        apply_prematch_kit(mask);
+                        g_prematch_kit_applied = true;
+                    }
+                    ++g_host_auto_round_frames;
+                    bool all_have_primary = true;
+                    for (std::size_t i = 0; i < netcore::kMaxPlayers; ++i) {
+                        if (!g_host_session->slots()[i].occupied) continue;
+                        if (g_host_session->slot_loadout_state(static_cast<uint8_t>(i)).primary_weapon ==
+                            netcore::kNoWeapon) {
+                            all_have_primary = false;
+                            break;
+                        }
+                    }
+                    if (!g_host_auto_round_started &&
+                        ((all_have_primary && g_host_auto_round_frames >= 15u) || g_host_auto_round_frames >= 75u)) {
+                        if (g_host_session->begin_next_round()) {
+                            g_host_auto_round_started = true;
+                            LOGR("mp_bridge: auto-started Territorial Assault Round 1 (frames=%u, all_kits=%d)",
+                                 g_host_auto_round_frames, all_have_primary ? 1 : 0);
+                        }
+                    }
+                }
+            }
             if (!g_local_fps_control_started) {
                 const uint32_t world = black::R32(guest_base, black::kWorld);
                 const uint32_t player = world ? (world + black::kWorldPlayer) : 0;
@@ -1797,6 +1958,21 @@ void OnPreFrame(uint8_t* guest_base) {
                 LOGR("mp_bridge: client joined match as player_id=%u",
                      static_cast<unsigned>(g_client_session->local_player_id()));
                 g_client_join_logged = true;
+            }
+            if (g_prematch_configured && !g_prematch_team_applied &&
+                g_client_session->game_mode() == static_cast<uint8_t>(netcore::GameMode::TerritorialAssault)) {
+                if (g_client_session->send_team_select(g_prematch_team == 0u ? netcore::ta::Team::A
+                                                                              : netcore::ta::Team::B)) {
+                    g_prematch_team_applied = true;
+                }
+            }
+            if (g_prematch_configured && !g_prematch_kit_applied &&
+                g_client_session->game_mode() == static_cast<uint8_t>(netcore::GameMode::TerritorialAssault)) {
+                const auto& opt_ta = g_client_session->latest_territorial_state();
+                if (opt_ta.has_value() && opt_ta->match_state == 1u) {
+                    apply_prematch_kit(g_client_session->available_weapon_mask());
+                    g_prematch_kit_applied = true;
+                }
             }
 
             if (in_level) {

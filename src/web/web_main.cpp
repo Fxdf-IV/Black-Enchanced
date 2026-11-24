@@ -338,6 +338,15 @@ int32_t BlackWebTerritorialAction(uint32_t action, uint32_t arg) {
     return 0;
 }
 
+void BlackWebConfigurePreMatch(uint32_t mission_idx, uint32_t local_team, uint32_t primary_weapon,
+                               uint32_t secondary_weapon, uint32_t tactical_flags) {
+    mp::ConfigurePreMatchLaunch(static_cast<uint8_t>(mission_idx & 7u),
+                                static_cast<uint8_t>(local_team & 1u),
+                                static_cast<uint8_t>(primary_weapon & 0xFFu),
+                                static_cast<uint8_t>(secondary_weapon & 0xFFu),
+                                static_cast<uint8_t>(tactical_flags & 0xFFu));
+}
+
 void BlackWebSetEnhancedConfig(uint32_t mouse_direct, float mouse_sens, float ads_mult, uint32_t invert_y,
                                float fov_deg, uint32_t hitmarker, uint32_t skip_intro) {
     common::EnhancedConfig cfg = common::GetEnhancedConfig();

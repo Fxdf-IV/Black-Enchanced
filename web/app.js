@@ -68,30 +68,45 @@ const DISCRETE_LATCH_CODES = new Set([
 ]);
 
 const DEFAULT_CATALOG = {
-  maxCredits: 8000,
-  armorPrice: 650,
+  maxCredits: 15,
+  armorPrice: 3,
   armorBonus: 25,
-  tacticalPrice: 300,
-  buyWindowTicks: 450,
+  tacticalPrice: 2,
+  buyWindowTicks: 0,
   weapons: [
     { id: 0, name: "Glock 19", slot: 0, price: 0, damage: 22, mag: 19, range: 80, fireTicks: 5 },
-    { id: 1, name: "DC3 Elite", slot: 0, price: 450, damage: 28, mag: 12, range: 85, fireTicks: 5 },
-    { id: 2, name: "Magnum", slot: 0, price: 700, damage: 55, mag: 6, range: 100, fireTicks: 12 },
-    { id: 3, name: "MP5", slot: 1, price: 1250, damage: 20, mag: 30, range: 90, fireTicks: 2 },
-    { id: 4, name: "MAC-10", slot: 1, price: 1050, damage: 18, mag: 32, range: 70, fireTicks: 2 },
-    { id: 5, name: "Uzi", slot: 1, price: 1100, damage: 19, mag: 32, range: 75, fireTicks: 2 },
-    { id: 6, name: "P90", slot: 1, price: 1800, damage: 21, mag: 50, range: 95, fireTicks: 2 },
-    { id: 7, name: "AK-47", slot: 1, price: 2700, damage: 34, mag: 30, range: 160, fireTicks: 3 },
-    { id: 8, name: "M16A2", slot: 1, price: 2900, damage: 30, mag: 30, range: 175, fireTicks: 3 },
-    { id: 9, name: "G36C", slot: 1, price: 2400, damage: 29, mag: 30, range: 165, fireTicks: 3 },
-    { id: 10, name: "SPAS-12", slot: 1, price: 1600, damage: 75, mag: 8, range: 35, fireTicks: 15 },
-    { id: 11, name: "Remington 870", slot: 1, price: 1400, damage: 85, mag: 8, range: 32, fireTicks: 18 },
-    { id: 12, name: "M249 SAW", slot: 1, price: 4500, damage: 32, mag: 100, range: 170, fireTicks: 2 },
-    { id: 13, name: "WA2000", slot: 1, price: 4200, damage: 95, mag: 6, range: 300, fireTicks: 20 },
-    { id: 14, name: "M203", slot: 1, price: 2200, damage: 100, mag: 1, range: 120, fireTicks: 45 },
-    { id: 15, name: "RPG-7", slot: 1, price: 3600, damage: 100, mag: 1, range: 200, fireTicks: 60 },
+    { id: 1, name: "DC3 Elite", slot: 0, price: 1, damage: 28, mag: 12, range: 85, fireTicks: 5 },
+    { id: 2, name: "Magnum", slot: 0, price: 2, damage: 55, mag: 6, range: 100, fireTicks: 12 },
+    { id: 3, name: "MP5", slot: 1, price: 4, damage: 20, mag: 30, range: 90, fireTicks: 2 },
+    { id: 4, name: "MAC-10", slot: 1, price: 3, damage: 18, mag: 32, range: 70, fireTicks: 2 },
+    { id: 5, name: "Uzi", slot: 1, price: 3, damage: 19, mag: 32, range: 75, fireTicks: 2 },
+    { id: 6, name: "P90", slot: 1, price: 5, damage: 21, mag: 50, range: 95, fireTicks: 2 },
+    { id: 7, name: "AK-47", slot: 1, price: 7, damage: 34, mag: 30, range: 160, fireTicks: 3 },
+    { id: 8, name: "M16A2", slot: 1, price: 7, damage: 30, mag: 30, range: 175, fireTicks: 3 },
+    { id: 9, name: "G36C", slot: 1, price: 6, damage: 29, mag: 30, range: 165, fireTicks: 3 },
+    { id: 10, name: "SPAS-12", slot: 1, price: 5, damage: 75, mag: 8, range: 35, fireTicks: 15 },
+    { id: 11, name: "Remington 870", slot: 1, price: 4, damage: 85, mag: 8, range: 32, fireTicks: 18 },
+    { id: 12, name: "M249 SAW", slot: 1, price: 9, damage: 32, mag: 100, range: 170, fireTicks: 2 },
+    { id: 13, name: "WA2000", slot: 1, price: 9, damage: 95, mag: 6, range: 300, fireTicks: 20 },
+    { id: 14, name: "M203", slot: 1, price: 8, damage: 100, mag: 1, range: 120, fireTicks: 45 },
+    { id: 15, name: "RPG-7", slot: 1, price: 10, damage: 100, mag: 1, range: 200, fireTicks: 60 },
   ],
 };
+
+const BLACK_MAPS = [
+  { index: 0, internalId: 0, name: "Veblensk City Streets" },
+  { index: 1, internalId: 1, name: "Treneska Border Crossing" },
+  { index: 2, internalId: 5, name: "Naszran Foundry" },
+  { index: 3, internalId: 3, name: "Tivliz Asylum" },
+  { index: 4, internalId: 4, name: "Veblensk Dockyard" },
+  { index: 5, internalId: 6, name: "Graznei Bridge" },
+  { index: 6, internalId: 7, name: "Spetriniv Gulag" },
+  { index: 7, internalId: 8, name: "Spetriniv (Final)" },
+];
+
+function mapNameByIndex(idx) {
+  return BLACK_MAPS[Number(idx) & 7]?.name || "Veblensk City Streets";
+}
 
 const BUY_RESULT_LABELS = [
   "Loadout equipado na partida.",
@@ -191,7 +206,18 @@ const state = {
   serverManifest: null,
   catalog: DEFAULT_CATALOG,
   enhanced: loadEnhancedPrefs(),
-  roomRules: { gameMode: 0, csLoadout: true, fixedBudget: false, budgetCap: 8000 },
+  roomRules: { gameMode: 2, csLoadout: true, fixedBudget: true, budgetCap: 15, mapIndex: 0 },
+  lobby: {
+    mapIndex: 0,
+    localTeam: 0,
+    primary: 7,     // AK-47 (7 SP)
+    secondary: 0,   // Glock 19 (0 SP)
+    tactical: 0,
+    ready: false,
+    matchLaunching: false,
+    remotePeers: new Map(), // peerId -> { peerId, name, team, primary, secondary, tactical, ready }
+    rosterSnapshot: [],
+  },
   lastRebuyKit: null,
   lastLoadoutSnapshotKey: "",
   lastBuyHeaderKey: "",
@@ -336,33 +362,46 @@ function updateLoadingOverlay() {
   const scrim = document.getElementById("overlay-loading");
   if (!scrim) return;
   const st = engine.status;
+  const mp = isMultiplayerActive();
+  // No Multiplayer, cobre o canvas com a tela de carregamento do mapa até entrar direto na fase (sem menu do Xbox).
   const shouldShow =
     engine.bootStarted &&
     engine.activeOverlay === "none" &&
-    (!st || st.bootState < 2 || (st.presents || 0) === 0);
+    (mp ? !st?.inLevel : (!st || st.bootState < 2 || (st.presents || 0) === 0));
   scrim.classList.toggle("hidden", !shouldShow);
+  const title = document.getElementById("loading-title");
   const sub = document.getElementById("loading-sub");
-  if (sub && st?.bootMessage) {
-    sub.textContent = st.bootMessage;
+  if (mp && shouldShow) {
+    if (title) title.textContent = `CARREGANDO MAPA · ${mapNameByIndex(state.lobby.mapIndex).toUpperCase()}`;
+    if (sub) {
+      const side = state.lobby.localTeam === 0 ? "Time A (Ataque R1)" : "Time B (Defesa R1)";
+      const kit = `${weaponNameById(state.lobby.primary)} + ${weaponNameById(state.lobby.secondary)}`;
+      sub.textContent = `${side} · Kit: ${kit} · Entrando direto na partida...`;
+    }
+  } else {
+    if (title) title.textContent = "Inicializando BLACK no Navegador...";
+    if (sub && st?.bootMessage) sub.textContent = st.bootMessage;
   }
 }
 
 function setOverlay(name) {
   if (name === "buy" && (!isMultiplayerActive() || !isInLevelNow())) {
     if (!isMultiplayerActive()) {
-      showToast("Loadout CS está disponível apenas no modo Multiplayer Online.");
+      showToast("Armaria 15 SP está disponível apenas no modo Multiplayer Online.");
     } else {
-      showToast("Entre em uma missão no menu do BLACK (ex.: Missão 1) para usar o Loadout [B].");
+      showToast("A Armaria [B] abre durante o Lobby Pré-Partida ou no Intervalo entre rodadas.");
     }
     return;
   }
 
   engine.activeOverlay = name;
   const launcher = document.getElementById("overlay-launcher");
+  const lobby = document.getElementById("overlay-lobby");
   const options = document.getElementById("overlay-options");
   const buy = document.getElementById("overlay-buy");
 
   launcher?.classList.toggle("hidden", name !== "launcher");
+  lobby?.classList.toggle("hidden", name !== "lobby");
   options?.classList.toggle("hidden", name !== "options");
   buy?.classList.toggle("hidden", name !== "buy");
 
@@ -375,6 +414,9 @@ function setOverlay(name) {
     if (document.pointerLockElement) {
       document.exitPointerLock?.();
     }
+  }
+  if (name === "lobby") {
+    renderPreMatchLobby();
   }
   if (name === "buy") {
     refreshCatalogFromWasm();
@@ -433,14 +475,15 @@ function updateViewportChrome() {
   }
   document.getElementById("btn-open-buy-from-opt")?.classList.toggle("hidden", !(mp && inLvl));
   document.getElementById("hud-strip")?.classList.toggle("hidden", !(mp && inLvl && engine.activeOverlay === "none"));
-  const showTaHud = isTA && engine.bootStarted && engine.activeOverlay === "none" && Boolean(st?.ta);
+  const showTaHud = isTA && engine.bootStarted && inLvl && engine.activeOverlay === "none" && Boolean(st?.ta);
   document.getElementById("ta-hud")?.classList.toggle("hidden", !showTaHud);
   wrap?.classList.toggle("ta-active", showTaHud);
+  // Barra de assist de menu do Xbox aparece APENAS na Campanha Solo (no Multiplayer vai direto ao mapa).
   document.getElementById("menu-assist-bar")?.classList.toggle(
     "hidden",
-    !(presenting && !inLvl && engine.activeOverlay === "none")
+    !(!mp && presenting && !inLvl && engine.activeOverlay === "none")
   );
-  document.getElementById("btn-assist-mp-hint")?.classList.toggle("hidden", !mp);
+  document.getElementById("btn-assist-mp-hint")?.classList.add("hidden");
 
   touchControls?.update({
     bootStarted: engine.bootStarted,
@@ -467,7 +510,7 @@ function updateViewportChrome() {
         item("Setas / WASD", "Navegar"),
         item("Backspace", "Voltar (B)"),
         item("F10", "Opções"),
-        mp ? item("B", isTA ? "Armaria 15 SP (na missão)" : "Loadout (na missão)") : "",
+        item("B", "Armaria 15 SP (na missão)"),
       ].join("");
     } else if (mp) {
       footerKeys.innerHTML = [
@@ -475,7 +518,7 @@ function updateViewportChrome() {
         item("Mouse", "Mirar"),
         item("Esq/Dir", "Atirar / Zoom"),
         item("1 / 2 / Roda", "Arma"),
-        item("B", isTA ? "Armaria 15 SP" : "Loja CS"),
+        item("B", "Armaria 15 SP"),
         item("Tab", "Placar"),
         item("Esc", "Cursor"),
         item("F10", "Opções"),
@@ -515,26 +558,18 @@ async function detectBrowserCapabilities() {
   setBadge("cap-webrtc", typeof RTCPeerConnection !== "undefined" ? "P2P OK" : "SEM P2P", typeof RTCPeerConnection !== "undefined" ? "ok" : "warn");
 }
 
-function updateLauncherModeUi() {
-  const modeVal = Number(document.getElementById("mp-game-mode")?.value ?? state.roomRules.gameMode ?? 0);
-  const isTA = modeVal === 2;
-  document.getElementById("mp-cs-economy-row")?.classList.toggle("hidden", isTA);
-  document.getElementById("mp-ta-rules-note")?.classList.toggle("hidden", !isTA);
-}
-
 function readRoomConfigFromUi() {
-  const rawMode = Number(document.getElementById("mp-game-mode")?.value ?? 0);
-  const gameMode = rawMode === 1 || rawMode === 2 ? rawMode : 0;
-  const ecoMode = document.getElementById("mp-economy-mode")?.value || "dynamic";
-  const capVal = Number(document.getElementById("mp-budget-cap")?.value || 8000) || 8000;
-  const isTA = gameMode === 2;
+  const mapEl = document.getElementById("mp-map-select");
+  const rawMap = mapEl ? Number(mapEl.value) : state.lobby.mapIndex;
+  const mapIndex = Number.isFinite(rawMap) ? Math.max(0, Math.min(7, rawMap | 0)) : 0;
+  state.lobby.mapIndex = mapIndex;
   state.roomRules = {
-    gameMode,
+    gameMode: 2, // Multiplayer é exclusivamente Territorial Assault (15 SP, 2 rodadas, mapas de BLACK)
     csLoadout: true,
-    fixedBudget: isTA ? true : ecoMode === "fixed",
-    budgetCap: isTA ? 15 : Math.max(450, Math.min(30000, capVal)),
+    fixedBudget: true,
+    budgetCap: 15,
+    mapIndex,
   };
-  updateLauncherModeUi();
   return state.roomRules;
 }
 
@@ -547,8 +582,8 @@ function syncRoomFieldsToUi() {
   setVal("opt-room-code", state.roomCode);
   setVal("mp-player-name", state.playerName);
   setVal("opt-player-name", state.playerName);
-  setVal("mp-game-mode", String(state.roomRules.gameMode ?? 0));
-  updateLauncherModeUi();
+  setVal("mp-map-select", String(state.lobby.mapIndex ?? 0));
+  setVal("lobby-map-select", String(state.lobby.mapIndex ?? 0));
 }
 
 function readIdentityFromInputs(preferOptionsModal = false) {
@@ -569,11 +604,373 @@ function readIdentityFromInputs(preferOptionsModal = false) {
 function buildInviteUrl() {
   const url = new URL(window.location.href);
   url.searchParams.set("room", state.roomCode);
-  const mode = Number(state.roomRules.gameMode ?? 0);
-  if (mode === 2) url.searchParams.set("mode", "ta");
-  else if (mode === 1) url.searchParams.set("mode", "coop");
-  else url.searchParams.delete("mode");
+  url.searchParams.set("map", String(state.lobby.mapIndex ?? 0));
+  url.searchParams.delete("mode");
   return url.toString();
+}
+
+// ---- Pré-Lobby (Escolha de Mapa, Equipes e Armaria 15 SP ANTES de iniciar o 3D) ----
+
+function computeLobbyKitCost(primary, secondary, tactical) {
+  let cost = 0;
+  const p = DEFAULT_CATALOG.weapons.find((w) => w.id === primary);
+  const s = DEFAULT_CATALOG.weapons.find((w) => w.id === secondary);
+  if (p) cost += p.price;
+  if (s) cost += s.price;
+  if (tactical & TACTICAL_ARMOR) cost += DEFAULT_CATALOG.armorPrice;
+  if (tactical & TACTICAL_PACK) cost += DEFAULT_CATALOG.tacticalPrice;
+  return cost;
+}
+
+function buildHostLobbyRoster() {
+  const list = [
+    {
+      peerId: 0,
+      isHost: true,
+      name: state.playerName,
+      team: state.lobby.localTeam,
+      primary: state.lobby.primary,
+      secondary: state.lobby.secondary,
+      tactical: state.lobby.tactical,
+      ready: state.lobby.ready,
+    },
+  ];
+  for (const peer of state.lobby.remotePeers.values()) {
+    list.push({ ...peer, isHost: false });
+  }
+  return list;
+}
+
+function currentLobbyRoster() {
+  if (state.role === "host") return buildHostLobbyRoster();
+  if (state.lobby.rosterSnapshot.length > 0) return state.lobby.rosterSnapshot;
+  return [
+    {
+      peerId: state.transport?.localSignalingId || 1,
+      isHost: false,
+      isLocalFallback: true,
+      name: state.playerName,
+      team: state.lobby.localTeam,
+      primary: state.lobby.primary,
+      secondary: state.lobby.secondary,
+      tactical: state.lobby.tactical,
+      ready: state.lobby.ready,
+    },
+  ];
+}
+
+function broadcastHostLobbyState() {
+  if (state.role !== "host" || !state.transport) return;
+  const players = buildHostLobbyRoster();
+  state.transport.roomMeta = { ...state.roomRules, mapIndex: state.lobby.mapIndex };
+  state.transport.broadcastLobby({
+    op: "lobby_state",
+    mapIndex: state.lobby.mapIndex,
+    started: state.lobby.matchLaunching,
+    players,
+  });
+  renderPreMatchLobby();
+}
+
+function sendClientLobbyProfile() {
+  if (state.role !== "client" || !state.transport) return;
+  const hostPeer = state.transport.hostPeerId;
+  if (!hostPeer) return;
+  state.transport.sendLobby(hostPeer, {
+    op: "join_profile",
+    name: state.playerName,
+    team: state.lobby.localTeam,
+    primary: state.lobby.primary,
+    secondary: state.lobby.secondary,
+    tactical: state.lobby.tactical,
+    ready: state.lobby.ready,
+  });
+  renderPreMatchLobby();
+}
+
+function syncLocalLobbyChange() {
+  if (state.role === "host") broadcastHostLobbyState();
+  else if (state.role === "client") sendClientLobbyProfile();
+  else renderPreMatchLobby();
+}
+
+function handleLobbyMessage(peerId, data) {
+  if (!data || typeof data !== "object") return;
+  if (state.role === "host" && data.op === "join_profile") {
+    const existing = state.lobby.remotePeers.get(peerId);
+    let team = data.team === 0 || data.team === 1 ? data.team : 1;
+    if (!existing && data.team === undefined) {
+      const roster = buildHostLobbyRoster();
+      const cntA = roster.filter((p) => p.team === 0).length;
+      const cntB = roster.filter((p) => p.team === 1).length;
+      team = cntA <= cntB ? 0 : 1;
+    }
+    state.lobby.remotePeers.set(peerId, {
+      peerId,
+      name: String(data.name || `OP-${peerId}`).slice(0, 16),
+      team,
+      primary: Number.isFinite(data.primary) ? data.primary : 7,
+      secondary: Number.isFinite(data.secondary) ? data.secondary : 0,
+      tactical: Number.isFinite(data.tactical) ? data.tactical : 0,
+      ready: Boolean(data.ready),
+    });
+    broadcastHostLobbyState();
+    return;
+  }
+
+  if (state.role === "client") {
+    if (data.op === "lobby_state") {
+      if (Number.isFinite(data.mapIndex)) {
+        state.lobby.mapIndex = Math.max(0, Math.min(7, data.mapIndex | 0));
+        state.roomRules.mapIndex = state.lobby.mapIndex;
+        syncRoomFieldsToUi();
+      }
+      if (Array.isArray(data.players)) {
+        state.lobby.rosterSnapshot = data.players;
+      }
+      renderPreMatchLobby();
+      if (data.started && !state.lobby.matchLaunching) {
+        launchMultiplayerMatch();
+      }
+      return;
+    }
+    if (data.op === "launch_match") {
+      if (Number.isFinite(data.mapIndex)) {
+        state.lobby.mapIndex = Math.max(0, Math.min(7, data.mapIndex | 0));
+        state.roomRules.mapIndex = state.lobby.mapIndex;
+        syncRoomFieldsToUi();
+      }
+      showToast(`Host iniciou a partida em ${mapNameByIndex(state.lobby.mapIndex)}!`, 3200);
+      launchMultiplayerMatch();
+    }
+  }
+}
+
+function launchMultiplayerMatch() {
+  if (!isMultiplayerActive()) return;
+  if (state.lobby.primary === NO_WEAPON) {
+    showToast("Escolha uma arma primária na Armaria (15 SP) antes de iniciar.");
+    return;
+  }
+  state.lobby.matchLaunching = true;
+  if (state.role === "host" && state.transport) {
+    state.transport.broadcastLobby({
+      op: "launch_match",
+      mapIndex: state.lobby.mapIndex,
+    });
+  }
+  if (engine.module?._BlackWebConfigurePreMatch) {
+    engine.module._BlackWebConfigurePreMatch(
+      state.lobby.mapIndex & 7,
+      state.lobby.localTeam & 1,
+      state.lobby.primary & 0xff,
+      state.lobby.secondary & 0xff,
+      state.lobby.tactical & 0xff
+    );
+  }
+  startWasmEngine("mp");
+}
+
+function renderPreMatchLobby() {
+  const isHost = state.role === "host";
+  const roster = currentLobbyRoster();
+  const teamA = roster.filter((p) => p.team === 0);
+  const teamB = roster.filter((p) => p.team === 1);
+
+  const titleEl = document.getElementById("lobby-title");
+  if (titleEl) titleEl.textContent = `SALA ${state.roomCode} · ${mapNameByIndex(state.lobby.mapIndex).toUpperCase()}`;
+
+  const connPill = document.getElementById("lobby-conn-pill");
+  if (connPill) {
+    const peers = state.transport?.peers?.size || 0;
+    connPill.dataset.mode = state.role;
+    connPill.textContent = isHost
+      ? `HOST · ${roster.length}/4 OPERADORES`
+      : peers > 0
+        ? `CONECTADO · ${roster.length}/4 OPERADORES`
+        : "PROCURANDO HOST...";
+  }
+
+  const mapSel = document.getElementById("lobby-map-select");
+  if (mapSel) {
+    mapSel.value = String(state.lobby.mapIndex);
+    mapSel.disabled = !isHost;
+  }
+
+  const renderRoster = (containerId, list) => {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    box.replaceChildren();
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "team-player-sub";
+      empty.textContent = "Nenhum operador neste time.";
+      box.appendChild(empty);
+      return;
+    }
+    for (const p of list) {
+      const isSelf =
+        (isHost && p.isHost) ||
+        (!isHost && (p.isLocalFallback || p.peerId === state.transport?.localSignalingId || p.name === state.playerName));
+      const row = document.createElement("div");
+      row.className = `team-player${isSelf ? " is-self" : ""}`;
+      const left = document.createElement("div");
+      const nameDiv = document.createElement("div");
+      nameDiv.textContent = `${p.name}${p.isHost ? " [HOST]" : ""}${isSelf ? " (VOCÊ)" : ""}`;
+      const subDiv = document.createElement("div");
+      subDiv.className = "team-player-sub";
+      subDiv.textContent = `${weaponNameById(p.primary)} + ${weaponNameById(p.secondary)}`;
+      left.append(nameDiv, subDiv);
+      const right = document.createElement("span");
+      right.className = "ready-dot";
+      right.textContent = p.ready ? "PRONTO" : "MONTANDO";
+      if (!p.ready) right.style.color = "var(--text-muted)";
+      row.append(left, right);
+      box.appendChild(row);
+    }
+  };
+  renderRoster("lobby-team-a-list", teamA);
+  renderRoster("lobby-team-b-list", teamB);
+
+  const btnJoinA = document.getElementById("btn-lobby-join-a");
+  const btnJoinB = document.getElementById("btn-lobby-join-b");
+  if (btnJoinA) {
+    btnJoinA.classList.toggle("active", state.lobby.localTeam === 0);
+    btnJoinA.textContent = state.lobby.localTeam === 0 ? "Seu Time" : "Entrar";
+  }
+  if (btnJoinB) {
+    btnJoinB.classList.toggle("active", state.lobby.localTeam === 1);
+    btnJoinB.textContent = state.lobby.localTeam === 1 ? "Seu Time" : "Entrar";
+  }
+
+  // Armaria 15 SP
+  const used = computeLobbyKitCost(state.lobby.primary, state.lobby.secondary, state.lobby.tactical);
+  const free = Math.max(0, 15 - used);
+  const usedEl = document.getElementById("lobby-sp-used");
+  const freeEl = document.getElementById("lobby-sp-free");
+  const fillEl = document.getElementById("lobby-sp-fill");
+  const sumEl = document.getElementById("lobby-kit-summary");
+  if (usedEl) usedEl.textContent = `${used} / 15 SP`;
+  if (freeEl) freeEl.textContent = `${free} SP`;
+  if (fillEl) fillEl.style.width = `${Math.min(100, Math.round((used / 15) * 100))}%`;
+  if (sumEl) {
+    const extras = [];
+    if (state.lobby.tactical & TACTICAL_ARMOR) extras.push("Colete +25 HP");
+    if (state.lobby.tactical & TACTICAL_PACK) extras.push("Silenciador/Tático");
+    sumEl.innerHTML = `Primária: <strong>${weaponNameById(state.lobby.primary)}</strong> · Secundária: <strong>${weaponNameById(state.lobby.secondary)}</strong> · Proteção: <strong>${extras.length ? extras.join(" + ") : "Padrão"}</strong>`;
+  }
+
+  const primList = document.getElementById("lobby-primary-list");
+  if (primList) {
+    primList.replaceChildren();
+    const curPrimPrice = DEFAULT_CATALOG.weapons.find((x) => x.id === state.lobby.primary)?.price || 0;
+    for (const w of DEFAULT_CATALOG.weapons.filter((x) => x.slot !== 0)) {
+      const equipped = state.lobby.primary === w.id;
+      const affordable = used - curPrimPrice + w.price <= 15;
+      primList.appendChild(
+        buildBuyButton({
+          name: w.name,
+          meta: `DMG ${w.damage} · ${w.mag} balas · ${w.range}m`,
+          price: w.price,
+          isTA: true,
+          equipped,
+          affordable,
+          available: true,
+          onClick: () => {
+            state.lobby.primary = w.id;
+            syncLocalLobbyChange();
+          },
+        })
+      );
+    }
+  }
+
+  const secList = document.getElementById("lobby-secondary-list");
+  if (secList) {
+    secList.replaceChildren();
+    const curSecPrice = DEFAULT_CATALOG.weapons.find((x) => x.id === state.lobby.secondary)?.price || 0;
+    for (const w of DEFAULT_CATALOG.weapons.filter((x) => x.slot === 0)) {
+      const equipped = state.lobby.secondary === w.id;
+      const affordable = used - curSecPrice + w.price <= 15;
+      secList.appendChild(
+        buildBuyButton({
+          name: w.name,
+          meta: `DMG ${w.damage} · MAG ${w.mag}`,
+          price: w.price,
+          isTA: true,
+          equipped,
+          affordable,
+          available: true,
+          onClick: () => {
+            state.lobby.secondary = w.id;
+            syncLocalLobbyChange();
+          },
+        })
+      );
+    }
+
+    const hasArmor = (state.lobby.tactical & TACTICAL_ARMOR) !== 0;
+    secList.appendChild(
+      buildBuyButton({
+        name: "Colete Balístico (+25 HP)",
+        meta: hasArmor ? "Clique p/ remover (+3 SP)" : "Proteção extra ao spawnar",
+        price: DEFAULT_CATALOG.armorPrice,
+        isTA: true,
+        equipped: hasArmor,
+        affordable: hasArmor || used + DEFAULT_CATALOG.armorPrice <= 15,
+        available: true,
+        onClick: () => {
+          state.lobby.tactical = hasArmor ? (state.lobby.tactical & ~TACTICAL_ARMOR) : (state.lobby.tactical | TACTICAL_ARMOR);
+          syncLocalLobbyChange();
+        },
+      })
+    );
+
+    const hasPack = (state.lobby.tactical & TACTICAL_PACK) !== 0;
+    secList.appendChild(
+      buildBuyButton({
+        name: "Silenciador / Pacote Tático",
+        meta: hasPack ? "Clique p/ remover (+2 SP)" : "Acopla silenciador na arma",
+        price: DEFAULT_CATALOG.tacticalPrice,
+        isTA: true,
+        equipped: hasPack,
+        affordable: hasPack || used + DEFAULT_CATALOG.tacticalPrice <= 15,
+        available: true,
+        onClick: () => {
+          state.lobby.tactical = hasPack ? (state.lobby.tactical & ~TACTICAL_PACK) : (state.lobby.tactical | TACTICAL_PACK);
+          syncLocalLobbyChange();
+        },
+      })
+    );
+  }
+
+  const readyBtn = document.getElementById("btn-lobby-ready");
+  if (readyBtn) {
+    readyBtn.textContent = state.lobby.ready ? "✓ Pronto (Confirmado)" : "✓ Marcar Pronto";
+    readyBtn.classList.toggle("btn-primary", state.lobby.ready);
+  }
+
+  const startBtn = document.getElementById("btn-lobby-start");
+  const hintEl = document.getElementById("lobby-launch-hint");
+  const canStart = isHost && teamA.length >= 1 && teamB.length >= 1 && state.lobby.primary !== NO_WEAPON;
+  if (startBtn) {
+    startBtn.classList.toggle("hidden", !isHost);
+    startBtn.disabled = !canStart;
+    startBtn.textContent = `▶ Iniciar em ${mapNameByIndex(state.lobby.mapIndex)}`;
+  }
+  if (hintEl) {
+    if (!isHost) {
+      const peers = state.transport?.peers?.size || 0;
+      hintEl.textContent =
+        peers > 0
+          ? `Conectado à sala ${state.roomCode}. Escolha seu time e kit de 15 SP — aguardando o Host iniciar a partida em ${mapNameByIndex(state.lobby.mapIndex)}.`
+          : `Procurando host da sala ${state.roomCode}...`;
+    } else if (canStart) {
+      hintEl.textContent = `Sala pronta (${teamA.length} vs ${teamB.length})! Clique em Iniciar para carregar ${mapNameByIndex(state.lobby.mapIndex)} direto para todos.`;
+    } else {
+      hintEl.textContent = `Aguardando pelo menos 1 operador em cada time (Time A: ${teamA.length} · Time B: ${teamB.length}). Copie o link de convite acima!`;
+    }
+  }
 }
 
 async function copyInviteLink(preferOptionsModal = false) {
@@ -721,6 +1118,15 @@ function syncWasmRole(roleName) {
       mod._BlackWebPushIncomingNet(0, hostPeer, 0, 0, 0);
     }
   }
+  if ((roleName === "host" || roleName === "client") && state.lobby.matchLaunching && mod._BlackWebConfigurePreMatch) {
+    mod._BlackWebConfigurePreMatch(
+      state.lobby.mapIndex | 0,
+      state.lobby.localTeam | 0,
+      state.lobby.primary | 0,
+      state.lobby.secondary | 0,
+      state.lobby.tactical | 0,
+    );
+  }
   refreshCatalogFromWasm();
 }
 
@@ -736,11 +1142,17 @@ function startSession(preferredRole, fromOptionsModal = false) {
 
   state.packetsTx = 0;
   state.packetsRx = 0;
+  state.lobby.remotePeers.clear();
+  state.lobby.rosterSnapshot = [];
+  state.lobby.ready = false;
+  state.lobby.matchLaunching = false;
 
   if (preferredRole === "offline") {
     state.role = "offline";
     state.localPlayerId = 0;
-    if (engine.activeOverlay === "buy") setOverlay("none");
+    if (engine.activeOverlay === "buy" || engine.activeOverlay === "lobby") {
+      setOverlay(engine.bootStarted ? "none" : "launcher");
+    }
     setScoreboardVisible(false);
     syncWasmRole("offline");
     logLine("MODO", "Campanha Solo selecionada (OfflineCampaign intacto).");
@@ -751,6 +1163,7 @@ function startSession(preferredRole, fromOptionsModal = false) {
 
   state.role = preferredRole === "host" ? "host" : "client";
   state.localPlayerId = state.role === "host" ? 0 : 1;
+  state.lobby.localTeam = state.role === "host" ? 0 : 1;
 
   state.transport = new WebRtcTransport({
     roomCode: state.roomCode,
@@ -762,36 +1175,32 @@ function startSession(preferredRole, fromOptionsModal = false) {
 
   state.transport.start(preferredRole);
   syncWasmRole(preferredRole);
+  if (!engine.bootStarted) {
+    setOverlay("lobby");
+  }
   updateTelemetryUi();
   updateViewportChrome();
 }
 
 function handleTransportEvent(ev) {
+  if (ev.type === "lobby_msg") {
+    handleLobbyMessage(Number(ev.peer) >>> 0, ev.data);
+    return;
+  }
+
   if (ev.type === "room_meta" && ev.meta) {
-    const prevMode = Number(state.roomRules.gameMode || 0);
-    const metaMode = Number(ev.meta.gameMode ?? 0);
-    const cleanMode = metaMode === 1 || metaMode === 2 ? metaMode : 0;
-    const isTA = cleanMode === 2;
+    const mapIdx = Number.isFinite(ev.meta.mapIndex) ? Math.max(0, Math.min(7, ev.meta.mapIndex | 0)) : state.lobby.mapIndex;
+    state.lobby.mapIndex = mapIdx;
     state.roomRules = {
-      gameMode: cleanMode,
-      csLoadout: Boolean(ev.meta.csLoadout ?? true),
-      fixedBudget: isTA ? true : Boolean(ev.meta.fixedBudget),
-      budgetCap: isTA ? 15 : Number(ev.meta.budgetCap || 8000),
+      gameMode: 2,
+      csLoadout: true,
+      fixedBudget: true,
+      budgetCap: 15,
+      mapIndex: mapIdx,
     };
-    const modeEl = document.getElementById("mp-game-mode");
-    const ecoEl = document.getElementById("mp-economy-mode");
-    const capEl = document.getElementById("mp-budget-cap");
-    if (modeEl) modeEl.value = String(cleanMode);
-    if (ecoEl) ecoEl.value = state.roomRules.fixedBudget ? "fixed" : "dynamic";
-    if (capEl) capEl.value = String(state.roomRules.budgetCap);
-    updateLauncherModeUi();
-    logLine(
-      "WEBRTC",
-      `Regras da sala ${state.roomCode} recebidas (${gameModeShortLabel(cleanMode)}, teto ${formatBudget(state.roomRules.budgetCap, isTA)}).`
-    );
-    if (state.role === "client" && engine.module && prevMode !== cleanMode) {
-      syncWasmRole("client");
-    }
+    syncRoomFieldsToUi();
+    logLine("WEBRTC", `Sala ${state.roomCode} sincronizada (Territorial Assault · ${mapNameByIndex(mapIdx)} · 15 SP).`);
+    renderPreMatchLobby();
     updateTelemetryUi();
     updateViewportChrome();
     return;
@@ -800,6 +1209,7 @@ function handleTransportEvent(ev) {
   if (ev.type === "role") {
     state.role = ev.role;
     syncWasmRole(ev.role);
+    renderPreMatchLobby();
     updateTelemetryUi();
     updateViewportChrome();
     return;
@@ -808,6 +1218,25 @@ function handleTransportEvent(ev) {
   if (ev.type === "connected") {
     const peerId = Number(ev.peer) >>> 0;
     logLine("WEBRTC", `DataChannel P2P ativo com par #${peerId} na sala ${state.roomCode}.`);
+    if (state.role === "host") {
+      if (!state.lobby.remotePeers.has(peerId)) {
+        const roster = buildHostLobbyRoster();
+        const cntA = roster.filter((p) => p.team === 0).length;
+        const cntB = roster.filter((p) => p.team === 1).length;
+        state.lobby.remotePeers.set(peerId, {
+          peerId,
+          name: `OP-${peerId % 100}`,
+          team: cntA <= cntB ? 0 : 1,
+          primary: 7,
+          secondary: 0,
+          tactical: 0,
+          ready: false,
+        });
+      }
+      broadcastHostLobbyState();
+    } else if (state.role === "client") {
+      sendClientLobbyProfile();
+    }
     if (engine.module && state.role !== "offline") {
       if (state.role === "client" && engine.wasmClientConfiguredPeer !== peerId) {
         syncWasmRole("client");
@@ -821,6 +1250,9 @@ function handleTransportEvent(ev) {
 
   if (ev.type === "disconnected") {
     const peerId = Number(ev.peer) >>> 0;
+    state.lobby.remotePeers.delete(peerId);
+    if (state.role === "host") broadcastHostLobbyState();
+    else renderPreMatchLobby();
     if (engine.module && state.role !== "offline") {
       engine.module._BlackWebPushIncomingNet(1, peerId, 0, 0, 0);
     }
@@ -961,14 +1393,14 @@ function updateBuyMenuHeader(cur) {
 }
 
 const BLACK_LEVEL_NAMES = {
-  0: "Missão 1 · Streets",
-  1: "Missão 2 · Border",
-  2: "Missão 3 · Foundry",
-  3: "Missão 4 · Asylum",
-  4: "Missão 5 · Dockyard",
-  5: "Missão 6 · Bridge",
-  6: "Missão 7 · Gulag",
-  7: "Missão 8 · Spetriniv",
+  0: "01 · Veblensk City Streets",
+  1: "02 · Treneska Border Crossing",
+  3: "04 · Tivliz Asylum",
+  4: "05 · Veblensk Dockyard",
+  5: "03 · Naszran Foundry",
+  6: "06 · Graznei Bridge",
+  7: "07 · Spetriniv Gulag",
+  8: "08 · Spetriniv (Final)",
 };
 
 function levelLabel(id) {
@@ -1383,11 +1815,12 @@ function pollWasmStatus() {
       triggerHitmarkerFlash();
     }
 
-    // Se Host iniciou WASM depois do Cliente já estar na sala P2P, re-envia Hello até unir.
+    // Se o cliente ainda não entrou no papel WASM=2 (ex.: hostPeerId descoberto após o boot), configura uma única vez.
+    // Quando st.role já é 2, o próprio mp_bridge reenvia Hello a cada 30 quadros sem destruir a sessão nem cancelar o direct launch.
     if (
       engine.bootStarted &&
       state.role === "client" &&
-      !st.clientJoined &&
+      Number(st.role || 0) !== 2 &&
       state.transport?.peers?.size > 0 &&
       performance.now() - engine.lastHelloRetryMs > 1200
     ) {
@@ -1695,50 +2128,15 @@ function updateTelemetryUi() {
     topPill.dataset.mode = state.role;
   }
 
-  // Lobby & botão Iniciar Multiplayer no Launcher
-  const lobbyBox = document.getElementById("mp-lobby-status");
-  const lobbyText = document.getElementById("mp-lobby-text");
-  const lobbyPeers = document.getElementById("mp-lobby-peers");
-  const playMpBtn = document.getElementById("btn-play-mp");
-  const joinedOrHosting = state.role === "host" || (state.role === "client" && (peers > 0 || st?.clientJoined));
-  if (lobbyBox) lobbyBox.dataset.ready = String(joinedOrHosting);
-  if (lobbyPeers) {
-    lobbyPeers.textContent =
-      state.role === "offline"
-        ? "0 par(es)"
-        : `${peers} par(es) · ${gameModeShortLabel(mode)} · ${formatBudget(state.roomRules.budgetCap, isTA)}`;
-  }
-  if (lobbyText) {
-    if (state.role === "offline") {
-      lobbyText.textContent = "Crie uma sala como Host ou entre com o código do amigo para liberar a partida.";
-    } else if (state.role === "host") {
-      lobbyText.textContent =
-        peers > 0
-          ? `Sala ${state.roomCode} (${gameModeShortLabel(mode)}) pronta com ${peers} amigo(s)! Todos podem clicar em Iniciar e escolher a Missão 1.`
-          : `Sala ${state.roomCode} aberta (${gameModeShortLabel(mode)}). Envie o link de convite ou inicie enquanto aguarda.`;
-    } else {
-      const arenaTxt = st?.clientJoined ? levelLabel(st.arenaId) : "Missão 1 · Streets";
-      lobbyText.textContent =
-        peers > 0 || st?.clientJoined
-          ? `Conectado à sala ${state.roomCode} (${gameModeShortLabel(mode)})! Fase ativa do Host: ${arenaTxt}. Clique em Iniciar e selecione a mesma missão.`
-          : `Procurando host da sala ${state.roomCode}...`;
-    }
-  }
-  if (playMpBtn) {
-    const canLaunchMp = state.role === "host" || (state.role === "client" && (peers > 0 || Boolean(st?.clientJoined)));
-    playMpBtn.disabled = !canLaunchMp;
-    playMpBtn.textContent = engine.bootStarted ? "▶ Voltar para o Jogo" : "▶ Iniciar na Sala";
-  }
-
   const optMpStatus = document.getElementById("opt-mp-status");
   if (optMpStatus) {
     optMpStatus.textContent =
       state.role === "offline"
-        ? "Modo atual: Campanha Solo (sem multiplayer ou loja)."
+        ? "Modo atual: Campanha Solo (vanilla intacta)."
         : state.role === "host"
-          ? `Modo atual: Host (${gameModeShortLabel(mode)}) · Sala ${state.roomCode} · ${peers} par(es) · Teto ${formatBudget(state.roomRules.budgetCap, isTA)}.`
+          ? `Modo atual: Host (Territorial Assault) · Sala ${state.roomCode} · Mapa: ${mapNameByIndex(state.lobby.mapIndex)} · ${peers} par(es) · 15 SP.`
           : st?.clientJoined || peers > 0
-            ? `Modo atual: Conectado (${gameModeShortLabel(mode)}) · Sala ${state.roomCode} (${peers} par).`
+            ? `Modo atual: Conectado (Territorial Assault) · Sala ${state.roomCode} · Mapa: ${mapNameByIndex(state.lobby.mapIndex)} (${peers} par).`
             : `Modo atual: Procurando host da sala ${state.roomCode}...`;
   }
 
@@ -2053,6 +2451,15 @@ async function startWasmEngine(targetMode) {
     pushEnhancedConfigToWasm();
     refreshCatalogFromWasm();
     syncWasmRole(state.role);
+    if (isMultiplayerActive() && mod._BlackWebConfigurePreMatch) {
+      mod._BlackWebConfigurePreMatch(
+        state.lobby.mapIndex & 7,
+        state.lobby.localTeam & 1,
+        state.lobby.primary & 0xff,
+        state.lobby.secondary & 0xff,
+        state.lobby.tactical & 0xff
+      );
+    }
 
     const rc = mod.ccall("BlackWebRequestBoot", "number", ["string"], ["/black_assets"]);
     logLine("BOOT", `BlackWebRequestBoot('/black_assets') -> rc=${rc}`);
@@ -2109,13 +2516,13 @@ async function handlePickedLocalFiles(fileList) {
 function applyRoomFromUrl() {
   try {
     const qs = new URLSearchParams(window.location.search);
-    const modeParam = (qs.get("mode") || "").trim().toLowerCase();
-    if (modeParam === "ta" || modeParam === "territorial" || modeParam === "2") {
-      state.roomRules.gameMode = 2;
-      state.roomRules.fixedBudget = true;
-      state.roomRules.budgetCap = 15;
-    } else if (modeParam === "coop" || modeParam === "1") {
-      state.roomRules.gameMode = 1;
+    const mapParam = qs.get("map");
+    if (mapParam !== null && mapParam !== "") {
+      const parsed = Number(mapParam);
+      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 7) {
+        state.lobby.mapIndex = parsed | 0;
+        state.roomRules.mapIndex = state.lobby.mapIndex;
+      }
     }
     const asHost = qs.has("host");
     const param = qs.get("room") || qs.get("host");
@@ -2134,8 +2541,8 @@ function applyRoomFromUrl() {
     switchLauncherTab("mp");
     showToast(
       asHost
-        ? `Sala ${clean} (${gameModeShortLabel(state.roomRules.gameMode)}) preenchida. Clique em "Criar Sala (Host)"!`
-        : `Convite detectado para sala ${clean} (${gameModeShortLabel(state.roomRules.gameMode)}). Clique em "Entrar na Sala"!`,
+        ? `Sala ${clean} (${mapNameByIndex(state.lobby.mapIndex)}) preenchida. Clique em "Criar Sala & Abrir Lobby"!`
+        : `Convite para sala ${clean} (${mapNameByIndex(state.lobby.mapIndex)}). Clique em "Entrar na Sala"!`,
       3800,
     );
   } catch {}
@@ -2159,14 +2566,6 @@ function bindEvents() {
     e.currentTarget?.blur?.();
     startWasmEngine("solo");
   });
-  document.getElementById("btn-play-mp")?.addEventListener("click", (e) => {
-    e.currentTarget?.blur?.();
-    if (!isMultiplayerActive()) {
-      showToast('Primeiro clique em "Criar Sala (Host)" ou "Entrar na Sala".');
-      return;
-    }
-    startWasmEngine("mp");
-  });
 
   document.getElementById("launch-enhanced-toggle")?.addEventListener("input", (e) => {
     const enabled = Boolean(e.target?.checked);
@@ -2181,13 +2580,14 @@ function bindEvents() {
     e.currentTarget?.blur?.();
     setOverlay("options");
   });
+  const defaultClosedOverlay = () => (engine.bootStarted ? "none" : isMultiplayerActive() ? "lobby" : "launcher");
   document.getElementById("btn-open-options")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();
-    setOverlay(engine.activeOverlay === "options" ? (engine.bootStarted ? "none" : "launcher") : "options");
+    setOverlay(engine.activeOverlay === "options" ? defaultClosedOverlay() : "options");
   });
   document.getElementById("btn-close-options")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();
-    setOverlay(engine.bootStarted ? "none" : "launcher");
+    setOverlay(defaultClosedOverlay());
     releaseInputFocus(true);
   });
 
@@ -2308,9 +2708,47 @@ function bindEvents() {
     releaseInputFocus(true);
   });
 
-  // Multiplayer Sala & Convite (Launcher + Modal Opções)
-  document.getElementById("mp-game-mode")?.addEventListener("change", () => {
+  // Multiplayer Sala, Pré-Lobby & Convite
+  document.getElementById("mp-map-select")?.addEventListener("change", () => {
     readRoomConfigFromUi();
+    syncRoomFieldsToUi();
+  });
+  document.getElementById("lobby-map-select")?.addEventListener("change", (e) => {
+    if (state.role !== "host") return;
+    const val = Math.max(0, Math.min(7, Number(e.target?.value || 0) | 0));
+    state.lobby.mapIndex = val;
+    state.roomRules.mapIndex = val;
+    syncRoomFieldsToUi();
+    broadcastHostLobbyState();
+  });
+  document.getElementById("btn-lobby-join-a")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    state.lobby.localTeam = 0;
+    syncLocalLobbyChange();
+  });
+  document.getElementById("btn-lobby-join-b")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    state.lobby.localTeam = 1;
+    syncLocalLobbyChange();
+  });
+  document.getElementById("btn-lobby-ready")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    state.lobby.ready = !state.lobby.ready;
+    syncLocalLobbyChange();
+  });
+  document.getElementById("btn-lobby-start")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    launchMultiplayerMatch();
+  });
+  document.getElementById("btn-lobby-copy-link")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    copyInviteLink(false);
+  });
+  document.getElementById("btn-lobby-leave")?.addEventListener("click", (e) => {
+    e.currentTarget?.blur?.();
+    startSession("offline");
+    setOverlay("launcher");
+    switchLauncherTab("mp");
   });
   document.getElementById("btn-ta-team-a")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();
@@ -2490,14 +2928,14 @@ function bindEvents() {
 
     if (e.code === "F10") {
       e.preventDefault();
-      setOverlay(engine.activeOverlay === "options" ? (engine.bootStarted ? "none" : "launcher") : "options");
+      setOverlay(engine.activeOverlay === "options" ? defaultClosedOverlay() : "options");
       return;
     }
 
     if (e.code === "Escape") {
       if (engine.activeOverlay === "buy" || engine.activeOverlay === "options") {
         e.preventDefault();
-        setOverlay(engine.bootStarted ? "none" : "launcher");
+        setOverlay(defaultClosedOverlay());
         releaseInputFocus(true);
       } else if (engine.scoreboardOpen) {
         e.preventDefault();
@@ -2671,6 +3109,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   ensureVfsBridge();
   syncEnhancedControlsUi();
   bindEvents();
+  applyRoomFromUrl();
   await detectBrowserCapabilities();
   await initAssetPipeline();
   startSession("offline");

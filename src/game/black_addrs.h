@@ -26,8 +26,17 @@ inline uint32_t FoldVa(uint32_t va) {
 // ---- Globais do executavel (estatico no default.xbe real; validacao em runtime pendente) --
 
 inline constexpr uint32_t kGame = 0x002D45F0;            // Estatico (XBE): ponteiro principal Game (lido em sub_001BD360, sub_001D5570)
+inline constexpr uint32_t kGameTargetLevel = 0x0002020C; // Estatico (XBE): uint8 ID interno do mapa (tabela 0x288648 -> {0,1,5,3,4,6,7,8}; sub_001132E0/sub_00122DE0)
+inline constexpr uint32_t kGameTargetDiff = 0x0002020D;  // Estatico (XBE): uint8 modo/dificuldade de inicio da fase (=1 em sub_001132E0)
+inline constexpr uint32_t kGameTargetUnit = 0x0002020E;  // Estatico (XBE): uint8 unidade inicial da fase (=1 em sub_001132E0)
+inline constexpr uint32_t kFrontEndState = 0x00020220;   // Estatico (XBE): estado embutido do menu FrontEnd em kGame (sub_00020210)
 inline constexpr uint32_t kGameState = 0x00021070;       // Estatico (XBE): offset do ponteiro de estado atual em kGame (sub_0020F6A0)
 inline constexpr uint32_t kInLevelState = 0x00020F78;    // Estatico (XBE): estado embutido em kGame (vtable 0x295338 em sub_00020210)
+inline constexpr uint32_t kFrontEnd = 0x002D199C;        // Estatico (XBE): ponteiro global do gerenciador de FrontEnd (sub_001132E0, sub_0020DCA0)
+inline constexpr uint32_t kFeNextState = 0x00003880;     // Estatico (XBE): ponteiro de proximo estado consumido em 0x001244AC -> sub_0020DCA0
+inline constexpr uint32_t kFeTriggerA = 0x00003884;      // Estatico (XBE): flag (=1) de transicao do FrontEnd (sub_001132E0)
+inline constexpr uint32_t kFeTriggerB = 0x00003888;      // Estatico (XBE): flag (=1) de confirmacao de troca de estado (0x00124496)
+inline constexpr uint8_t kMissionInternalLevelIds[8] = {0, 1, 5, 3, 4, 6, 7, 8};  // Tabela em 0x00288648 no default.xbe NTSC-U
 inline constexpr uint32_t kGameFrameTime = 0x002F3A38;   // Estatico (XBE): delta time de quadro (sub_000BE380)
 inline constexpr uint32_t kFrameCounter = 0x002F4368;    // Estatico (XBE): contador global de quadros incrementado em sub_0020F6A0
 

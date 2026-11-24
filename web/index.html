@@ -1138,6 +1138,166 @@
       color: var(--accent);
     }
 
+    /* Pré-Lobby de Partida (Mapa + Equipes + Armaria 15 SP ANTES do 3D) */
+    .lobby-card {
+      width: 100%;
+      max-width: 1060px;
+      max-height: 100%;
+      overflow-y: auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-top: 2px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8);
+    }
+
+    .lobby-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .lobby-grid {
+      display: grid;
+      grid-template-columns: 0.95fr 1.25fr;
+      gap: 14px;
+    }
+
+    .lobby-teams-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .team-box {
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .team-box.team-a {
+      border-top: 2px solid var(--err);
+    }
+
+    .team-box.team-b {
+      border-top: 2px solid #38bdf8;
+    }
+
+    .team-box-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .team-roster {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-height: 76px;
+    }
+
+    .team-player {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 6px 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .team-player.is-self {
+      border-color: var(--accent);
+    }
+
+    .team-player-sub {
+      color: var(--text-muted);
+      font-size: 10px;
+    }
+
+    .ready-dot {
+      color: var(--ok);
+      font-weight: 700;
+      font-size: 10px;
+    }
+
+    .lobby-armory-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.9fr;
+      gap: 10px;
+    }
+
+    .lobby-armory-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 250px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .sp-bar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .sp-track {
+      flex: 1;
+      height: 6px;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .sp-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 120ms ease;
+    }
+
+    .lobby-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 900px) {
+      .lobby-grid,
+      .lobby-teams-grid,
+      .lobby-armory-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* Faixa discreta de controles abaixo do palco */
     .viewport-footer {
       display: flex;
@@ -1305,7 +1465,7 @@
     <div class="topbar-actions">
       <span id="cap-webgpu" class="cap-badge" data-level="warn">WEBGPU...</span>
       <span id="cap-webrtc" class="cap-badge">P2P</span>
-      <button id="btn-open-buy" class="btn btn-sm hidden" type="button">Loja Loadout (B)</button>
+      <button id="btn-open-buy" class="btn btn-sm hidden" type="button">Armaria 15 SP (B)</button>
       <button id="btn-open-options" class="btn btn-sm" type="button">Opções / Online (F10)</button>
       <button id="btn-fullscreen" class="btn btn-sm" type="button">Tela Cheia</button>
     </div>
@@ -1382,8 +1542,8 @@
         <div class="hud-group">
           <span>HP <strong id="hud-hp" style="color: var(--text-primary);">100</strong></span>
           <span>|</span>
-          <span id="hud-credits" style="color: var(--ok); font-weight: 700;">$1500 / $8000</span>
-          <span id="hud-buy-window" style="color: var(--accent);">COMPRA ABERTA</span>
+          <span id="hud-credits" style="color: var(--ok); font-weight: 700;">KIT 7 / 15 SP</span>
+          <span id="hud-buy-window" style="color: var(--accent);">KIT TRAVADO</span>
         </div>
         <div class="hud-group">
           <button id="hud-slot-primary" class="hud-chip" type="button">[1] Primária: —</button>
@@ -1391,19 +1551,19 @@
           <span id="hud-tactical" style="color: var(--text-secondary);"></span>
         </div>
         <div class="hud-group">
-          <button id="hud-btn-buy" class="hud-chip" type="button">[B] Loadout</button>
+          <button id="hud-btn-buy" class="hud-chip" type="button">[B] Armaria 15 SP</button>
           <button id="hud-btn-score" class="hud-chip" type="button">[Tab] Placar</button>
         </div>
       </div>
 
-      <!-- Loading Scrim visível apenas entre clique de boot e primeiro quadro WebGPU -->
+      <!-- Loading Scrim visível durante inicialização WebGPU / carregamento direto do mapa -->
       <div id="overlay-loading" class="loading-scrim hidden">
         <div class="spinner"></div>
         <div id="loading-title" class="modal-title">Inicializando BLACK no Navegador...</div>
         <div id="loading-sub" class="opfs-status">Carregando WebAssembly, WebGPU shaders e áudio...</div>
       </div>
 
-      <!-- Overlay Inicial limpo (estilo nfsu2.xyz) -->
+      <!-- Overlay Inicial limpo -->
       <div id="overlay-launcher" class="viewport-overlay">
         <div class="launcher-card">
           <div class="launcher-head">
@@ -1411,7 +1571,7 @@
               <div class="eyebrow">BLACK (Xbox 2006) · WEBGPU + WASM + WEBAUDIO</div>
               <h1 class="launcher-title">BLACK no Navegador</h1>
               <p class="launcher-sub">
-                Rode BLACK direto no browser com mira 1:1 opcional, FOV ajustável e Multiplayer P2P com compra de loadout por orçamento.
+                Jogue a Campanha original ou monte uma sala Multiplayer Territorial Assault com escolha de mapa, equipes e armaria de 15 SP antes da partida.
               </p>
             </div>
             <button id="btn-launcher-options" class="btn btn-sm" type="button">⚙ Controles &amp; FOV</button>
@@ -1420,11 +1580,11 @@
           <div class="mode-tabs" role="tablist" aria-label="Modo de jogo">
             <button id="tab-solo" class="mode-tab active" type="button" role="tab" aria-selected="true">
               Campanha Solo
-              <small>Missões originais, sem loja ou placar online</small>
+              <small>Missões originais do BLACK, intactas</small>
             </button>
             <button id="tab-multiplayer" class="mode-tab" type="button" role="tab" aria-selected="false">
-              Multiplayer Online (P2P)
-              <small>Sala entre amigos + Loadout estilo CS (B)</small>
+              Multiplayer Online
+              <small>Territorial Assault · Mapas de BLACK · 15 SP</small>
             </button>
           </div>
 
@@ -1439,20 +1599,20 @@
             </div>
           </div>
 
-          <!-- Painel Multiplayer P2P transparente -->
+          <!-- Painel Multiplayer: Criar / Entrar na Sala de Lobby Pré-Partida -->
           <div id="panel-mp" class="mode-panel hidden">
             <div class="steps-strip">
               <div class="step-chip">
-                <strong>1. SALA P2P</strong>
-                Crie uma sala e envie o link de convite, ou cole o código de um amigo.
+                <strong>1. ESCOLHA O MAPA</strong>
+                Selecione qualquer mapa real de BLACK antes da partida começar.
               </div>
               <div class="step-chip">
-                <strong>2. MESMA MISSÃO</strong>
-                Todos iniciam o jogo e entram na mesma missão (ex.: Missão 1) para spawnar juntos.
+                <strong>2. EQUIPES &amp; 15 SP</strong>
+                No Lobby, escolha Time A/B e monte seu kit com armas nativas de BLACK.
               </div>
               <div class="step-chip">
-                <strong>3. LOADOUT [B]</strong>
-                Na fase, aperte B para comprar armas dentro do limite de créditos da sala.
+                <strong>3. INÍCIO DIRETO</strong>
+                O Host inicia e todos caem direto no mapa escolhido — sem menu do Xbox.
               </div>
             </div>
 
@@ -1472,46 +1632,22 @@
             </div>
 
             <div class="field">
-              <label for="mp-game-mode">Modo Multiplayer</label>
-              <select id="mp-game-mode">
-                <option value="0" selected>PvP Arena · Loadout estilo CS</option>
-                <option value="2">Territorial Assault · Push 2 Rodadas · 15 SP + Ondas</option>
-                <option value="1">Campanha Co-op · Equipe vs IA</option>
+              <label for="mp-map-select">Mapa de BLACK (Territorial Assault · 2 Rodadas)</label>
+              <select id="mp-map-select">
+                <option value="0" selected>01 · Veblensk City Streets</option>
+                <option value="1">02 · Treneska Border Crossing</option>
+                <option value="2">03 · Naszran Foundry</option>
+                <option value="3">04 · Tivliz Asylum</option>
+                <option value="4">05 · Veblensk Dockyard</option>
+                <option value="5">06 · Graznei Bridge</option>
+                <option value="6">07 · Spetriniv Gulag</option>
+                <option value="7">08 · Spetriniv (Final)</option>
               </select>
             </div>
 
-            <div id="mp-cs-economy-row" class="form-2col">
-              <div class="field">
-                <label for="mp-economy-mode">Economia da Loja CS</label>
-                <select id="mp-economy-mode">
-                  <option value="dynamic" selected>CS Dinâmico ($1500 + Kills)</option>
-                  <option value="fixed">Orçamento Fixo (Limite da Sala)</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="mp-budget-cap">Teto / Orçamento ($)</label>
-                <select id="mp-budget-cap">
-                  <option value="3000">$3.000 (Tático Restrito)</option>
-                  <option value="5000">$5.000 (Médio)</option>
-                  <option value="8000" selected>$8.000 (Padrão CS)</option>
-                  <option value="16000">$16.000 (Livre)</option>
-                </select>
-              </div>
-            </div>
-
-            <div id="mp-ta-rules-note" class="ta-rules-note hidden">
-              <strong>Territorial Assault:</strong> 2 rodadas com inversão Ataque/Defesa, objetivos sequenciais (A → B), ondas coletivas de reforço e <strong>15 Supply Points (SP)</strong> fixos (armas nativas de BLACK; primária obrigatória).
-            </div>
-
-            <div id="mp-lobby-status" class="lobby-box" data-ready="false">
-              <span id="mp-lobby-text">Nenhuma sala ativa. Crie uma sala como Host ou entre usando o código.</span>
-              <span id="mp-lobby-peers" class="mono">0 par(es)</span>
-            </div>
-
             <div class="btn-row">
-              <button id="btn-mp-host" class="btn btn-primary" type="button">Criar Sala (Host)</button>
+              <button id="btn-mp-host" class="btn btn-primary" type="button">Criar Sala &amp; Abrir Lobby (Host)</button>
               <button id="btn-mp-join" class="btn" type="button">Entrar na Sala</button>
-              <button id="btn-play-mp" class="btn btn-ok" type="button" disabled>▶ Iniciar na Sala</button>
             </div>
           </div>
 
@@ -1530,6 +1666,96 @@
           </div>
           <input id="xbe-file-input" type="file" multiple webkitdirectory style="display: none;" />
           <input id="iso-file-input" type="file" accept=".iso,.xiso" style="display: none;" />
+        </div>
+      </div>
+
+      <!-- Lobby Pré-Partida (Mapa + Equipes + Armaria 15 SP ANTES de carregar o 3D) -->
+      <div id="overlay-lobby" class="modal-overlay hidden">
+        <div class="lobby-card">
+          <div class="lobby-top">
+            <div>
+              <div class="eyebrow" id="lobby-eyebrow">TERRITORIAL ASSAULT · PRÉ-PARTIDA</div>
+              <div class="modal-title" id="lobby-title">SALA VEX401</div>
+            </div>
+            <div class="btn-row">
+              <span id="lobby-conn-pill" class="role-pill" data-mode="host">1/4 OPERADORES</span>
+              <button id="btn-lobby-copy-link" class="btn btn-sm" type="button">Copiar Link de Convite</button>
+              <button id="btn-lobby-leave" class="btn btn-sm" type="button">Sair da Sala</button>
+            </div>
+          </div>
+
+          <div class="lobby-grid">
+            <!-- Esquerda: Mapa & Equipes -->
+            <div class="sub-panel">
+              <div class="sub-title">Mapa &amp; Equipes</div>
+              <div class="field">
+                <label for="lobby-map-select">Mapa de BLACK</label>
+                <select id="lobby-map-select">
+                  <option value="0" selected>01 · Veblensk City Streets</option>
+                  <option value="1">02 · Treneska Border Crossing</option>
+                  <option value="2">03 · Naszran Foundry</option>
+                  <option value="3">04 · Tivliz Asylum</option>
+                  <option value="4">05 · Veblensk Dockyard</option>
+                  <option value="5">06 · Graznei Bridge</option>
+                  <option value="6">07 · Spetriniv Gulag</option>
+                  <option value="7">08 · Spetriniv (Final)</option>
+                </select>
+              </div>
+              <div class="ta-rules-note">
+                <strong>Regras:</strong> 2 rodadas com inversão Ataque/Defesa · Objetivos sequenciais A → B · Ondas coletivas · <strong>15 SP</strong> fixos.
+              </div>
+
+              <div class="lobby-teams-grid">
+                <div class="team-box team-a">
+                  <div class="team-box-head">
+                    <span style="color: #fca5a5;">TIME A · ATAQUE R1</span>
+                    <button id="btn-lobby-join-a" class="hud-chip" type="button">Entrar</button>
+                  </div>
+                  <div id="lobby-team-a-list" class="team-roster"></div>
+                </div>
+                <div class="team-box team-b">
+                  <div class="team-box-head">
+                    <span style="color: #7dd3fc;">TIME B · DEFESA R1</span>
+                    <button id="btn-lobby-join-b" class="hud-chip" type="button">Entrar</button>
+                  </div>
+                  <div id="lobby-team-b-list" class="team-roster"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Direita: Armaria Pré-Partida (15 SP, armas nativas de BLACK) -->
+            <div class="sub-panel">
+              <div class="sub-title">Armaria Pré-Partida (15 Supply Points · Armas de BLACK)</div>
+              <div class="sp-bar-row">
+                <span>USADO: <strong id="lobby-sp-used" style="color: var(--accent);">7 / 15 SP</strong></span>
+                <div class="sp-track"><div id="lobby-sp-fill" class="sp-fill" style="width: 47%;"></div></div>
+                <span>LIVRE: <strong id="lobby-sp-free" style="color: var(--ok);">8 SP</strong></span>
+              </div>
+              <div id="lobby-kit-summary" class="opfs-status">
+                Primária: <strong>AK-47</strong> · Secundária: <strong>Glock 19</strong> · Proteção: <strong>Padrão</strong>
+              </div>
+              <div class="lobby-armory-grid">
+                <div>
+                  <div class="tel-label" style="margin-bottom: 5px;">Arma Primária (Obrigatória)</div>
+                  <div id="lobby-primary-list" class="lobby-armory-list"></div>
+                </div>
+                <div>
+                  <div class="tel-label" style="margin-bottom: 5px;">Secundária &amp; Proteção</div>
+                  <div id="lobby-secondary-list" class="lobby-armory-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="lobby-footer">
+            <div id="lobby-launch-hint" class="opfs-status">
+              Envie o link de convite. Necessário ao menos 1 operador em cada time para iniciar.
+            </div>
+            <div class="btn-row">
+              <button id="btn-lobby-ready" class="btn" type="button">✓ Marcar Pronto</button>
+              <button id="btn-lobby-start" class="btn btn-ok" type="button" disabled>▶ Iniciar Partida no Mapa</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1666,33 +1892,33 @@
                 <button id="btn-opt-copy-link" class="btn btn-sm" type="button">Copiar Convite</button>
               </div>
               <div class="opfs-status">
-                Dica: em Multiplayer P2P, cada jogador deve entrar na mesma missão do BLACK (ex.: Missão 1). Na fase, use <strong>[B]</strong> para comprar seu loadout e <strong>[Tab]</strong> para o placar.
+                Dica: no Multiplayer Territorial Assault você escolhe mapa, time e kit de <strong>15 SP</strong> no Lobby antes da partida. No intervalo entre rodadas, use <strong>[B]</strong> para ajustar seu kit e <strong>[Tab]</strong> para o placar.
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Loja CS-Style (APENAS em Multiplayer e dentro da missão) -->
+      <!-- Armaria Tática 15 SP (APENAS em Multiplayer e Preparação/Intervalo) -->
       <div id="overlay-buy" class="modal-overlay hidden">
         <div class="modal-card">
           <div class="modal-head">
-            <span id="buy-modal-title" class="modal-title">Loja de Loadout CS · Equipamento com Limite</span>
+            <span id="buy-modal-title" class="modal-title">Armaria Tática · Territorial Assault (15 Supply Points)</span>
             <div class="btn-row">
-              <button id="btn-rebuy-kit" class="btn btn-sm" type="button">Recomprar [F1]</button>
+              <button id="btn-rebuy-kit" class="btn btn-sm" type="button">Reaplicar [F1]</button>
               <button id="btn-close-buy" class="btn btn-primary btn-sm" type="button">Voltar ao Combate [B]</button>
             </div>
           </div>
 
           <div class="buy-summary">
-            <span>Saldo: <strong id="buy-credits-val" class="money-pill">$1.500</strong></span>
-            <span>Teto: <strong id="buy-cap-val" class="mono">$8.000</strong></span>
-            <span>Kit Atual: <strong id="buy-kit-cost-val" class="mono">$0</strong></span>
-            <span>Janela: <strong id="buy-window-val" class="mono">ABERTA</strong></span>
+            <span>Livre: <strong id="buy-credits-val" class="money-pill">8 SP</strong></span>
+            <span>Teto: <strong id="buy-cap-val" class="mono">15 SP</strong></span>
+            <span>Kit Atual: <strong id="buy-kit-cost-val" class="mono">7 SP</strong></span>
+            <span>Status: <strong id="buy-window-val" class="mono">PREP / INTERVALO</strong></span>
           </div>
 
           <div id="buy-feedback" class="buy-feedback">
-            Escolha sua arma ou pressione [1-9] dentro do orçamento da sala.
+            Monte seu kit com armas nativas de BLACK dentro de 15 Supply Points (primária obrigatória).
           </div>
 
           <div class="buy-columns">

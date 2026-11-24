@@ -122,6 +122,10 @@ bool StartClientWebRtc(const std::string& player_name = "Player",
 bool SelectTerritorialTeam(uint8_t team);
 bool EnterTerritorialPreparation();
 bool BeginTerritorialRound();
+// Configura o mapa, time e kit (15 SP) escolhidos no pré-lobby antes de entrar no motor 3D.
+void ConfigurePreMatchLaunch(uint8_t mission_idx, uint8_t local_team, uint8_t primary_weapon,
+                             uint8_t secondary_weapon, uint8_t tactical_flags);
+bool IsDirectMapLaunchPending();
 WebRtcTransport* ActiveWebRtcTransport();
 BridgeTelemetry GetTelemetry(const uint8_t* guest_base);
 

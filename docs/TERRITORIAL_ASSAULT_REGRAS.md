@@ -3,11 +3,18 @@
 Implementação distribuída em três camadas (sem efeito na campanha offline):
 - Lógica pura (`libs/netcore`, C++20 puro): [territorial.hpp](../libs/netcore/include/netcore/territorial.hpp) / [territorial.cpp](../libs/netcore/src/territorial.cpp), testes em [test_territorial.cpp](../libs/netcore/tests/test_territorial.cpp).
 - Protocolo `0xB1AC` (v4), regras de Supply Points e integração autoritativa Host/Cliente: [protocol.hpp](../libs/netcore/include/netcore/protocol.hpp), [protocol.cpp](../libs/netcore/src/protocol.cpp), [rules.hpp](../libs/netcore/include/netcore/rules.hpp), [rules.cpp](../libs/netcore/src/rules.cpp), [session.hpp](../libs/netcore/include/netcore/session.hpp), [session.cpp](../libs/netcore/src/session.cpp), testes e fuzzing em [test_netcore.cpp](../libs/netcore/tests/test_netcore.cpp).
-- Ponte do jogo, exportações WASM e Portal Web: [mp_bridge.h](../src/mp/mp_bridge.h), [mp_bridge.cpp](../src/mp/mp_bridge.cpp), [web_main.cpp](../src/web/web_main.cpp), [CMakeLists.txt](../CMakeLists.txt), [web/index.html](../web/index.html) e [web/app.js](../web/app.js) (`_BlackWebSetRoleMode`, `_BlackWebTerritorialAction`, seletor de modo, convite `?room=...&mode=ta`, HUD tático `#ta-hud`, Armaria `15 SP` e placar por time).
+- Ponte do jogo, exportações WASM e Portal Web: [mp_bridge.h](../src/mp/mp_bridge.h), [mp_bridge.cpp](../src/mp/mp_bridge.cpp), [web_main.cpp](../src/web/web_main.cpp), [CMakeLists.txt](../CMakeLists.txt), [web/netplay_webrtc.js](../web/netplay_webrtc.js), [web/index.html](../web/index.html) e [web/app.js](../web/app.js) (`_BlackWebSetRoleMode`, `_BlackWebConfigurePreMatch`, `_BlackWebTerritorialAction`, Pré-Lobby de mapa/equipes/Armaria `15 SP` antes do boot 3D, lançamento direto no mapa sem menu do Xbox, convite `?room=...&map=N`, HUD tático `#ta-hud`, Armaria `15 SP` e placar por time).
 Todos os valores abaixo são hipóteses de balanceamento e ficam em `ta::Config` / `RulesConfig::territorial_assault()`.
 
 Plataforma-alvo: recompilação do **Xbox NTSC-U** (não PS2). Equipamentos: somente armas e itens **nativos de BLACK**
-(AGENTS.md §2.2). A economia de Supply Points (`15 SP`, `RulesConfig::territorial_assault()`) vale só para este modo; o Deathmatch mantém a Loja `B` com créditos (`RulesConfig::cs_loadout_deathmatch()`).
+(AGENTS.md §2.2). No portal Web, o Multiplayer Online opera exclusivamente em **Territorial Assault** (`15 SP`, sem loja/modo CS); a **Campanha Solo** (`OfflineCampaign`) permanece intacta.
+
+## Fluxo de Pré-Lobby e Lançamento Direto (Web)
+
+1. Na aba **Multiplayer Online**, o Host escolhe um dos 8 mapas reais de BLACK (`0..7`), informa apelido/código da sala e abre o **Pré-Lobby** (`#overlay-lobby`) **antes** de inicializar o motor WebGPU/WASM.
+2. O transporte [web/netplay_webrtc.js](../web/netplay_webrtc.js) troca pacotes de controle com prefixo `"LB"` (`0x4C, 0x42`) no canal `reliable` (WebRTC P2P, `BroadcastChannel` local ou relay WebSocket) sem repassar ao WASM, mantendo mapa, times (`Time A` / `Time B`), kit `15 SP` e status `Pronto` sincronizados em tempo real.
+3. Ao clicar em **Iniciar Partida**, o Host difunde `lobby_start`, ambos os jogadores fecham o Pré-Lobby sob a tela de carregamento de mapa (`#overlay-loading`), bootam o motor e chamam `_BlackWebConfigurePreMatch(missionIdx, team, primary, secondary, tactical)`.
+4. `mp_bridge.cpp` + `hooks.cpp` pulam os vídeos XMV de abertura e disparam o gatilho nativo de transição FrontEnd → InLevel (`FE+0x3880..0x3888` com `kMissionInternalLevelIds[missionIdx]`), aplicando o time e o kit `15 SP` escolhidos no Pré-Lobby e iniciando a Rodada 1 automaticamente.
 
 ## Mensagens `0xB1AC` (protocolo v4)
 

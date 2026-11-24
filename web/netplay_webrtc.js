@@ -315,6 +315,28 @@ function fromHex(hex) {
   return out;
 }
 
+const LOBBY_MAGIC_0 = 0x4c; // 'L'
+const LOBBY_MAGIC_1 = 0x42; // 'B'
+
+function encodeLobbyPayload(obj) {
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(obj));
+  const out = new Uint8Array(2 + jsonBytes.length);
+  out[0] = LOBBY_MAGIC_0;
+  out[1] = LOBBY_MAGIC_1;
+  out.set(jsonBytes, 2);
+  return out;
+}
+
+function tryDecodeLobbyPayload(uint8) {
+  if (!uint8 || uint8.byteLength < 4) return null;
+  if (uint8[0] !== LOBBY_MAGIC_0 || uint8[1] !== LOBBY_MAGIC_1) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(uint8.subarray(2)));
+  } catch {
+    return null;
+  }
+}
+
 function getTabSessionId() {
   try {
     let id = sessionStorage.getItem("black_tab_session_id");
@@ -508,11 +530,17 @@ export class WebRtcTransport {
       this.onLog(`Fallback WebSocket relay ativo com par #${fromId}.`);
       this.onEvent({ type: "connected", peer: fromId });
     }
+    const payload = fromHex(hex);
+    const lobbyData = tryDecodeLobbyPayload(payload);
+    if (lobbyData) {
+      this.onEvent({ type: "lobby_msg", peer: fromId, data: lobbyData });
+      return;
+    }
     this.onEvent({
       type: "packet",
       peer: fromId,
       channel: channel === "unreliable" ? "unreliable" : "reliable",
-      payload: fromHex(hex),
+      payload,
     });
   }
 
@@ -614,11 +642,17 @@ export class WebRtcTransport {
         }
       };
       dc.onmessage = (ev) => {
+        const payload = new Uint8Array(ev.data);
+        const lobbyData = tryDecodeLobbyPayload(payload);
+        if (lobbyData) {
+          this.onEvent({ type: "lobby_msg", peer: remoteId, data: lobbyData });
+          return;
+        }
         this.onEvent({
           type: "packet",
           peer: remoteId,
           channel: kind,
-          payload: new Uint8Array(ev.data),
+          payload,
         });
       };
     };
@@ -699,6 +733,17 @@ export class WebRtcTransport {
   broadcast(channel, uint8) {
     for (const [peerId] of this.peers) {
       this.send(peerId, channel, uint8);
+    }
+  }
+
+  sendLobby(peerId, obj) {
+    return this.send(peerId, "reliable", encodeLobbyPayload(obj));
+  }
+
+  broadcastLobby(obj) {
+    const payload = encodeLobbyPayload(obj);
+    for (const [peerId] of this.peers) {
+      this.send(peerId, "reliable", payload);
     }
   }
 

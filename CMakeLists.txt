@@ -118,7 +118,7 @@ if(EMSCRIPTEN)
         -sFORCE_FILESYSTEM=1
         -lidbfs.js
         -sEXIT_RUNTIME=0
-        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_BlackWebRequestBoot','_BlackWebSetRole','_BlackWebSetRoleEx','_BlackWebSetRoleMode','_BlackWebTerritorialAction','_BlackWebSetSkipCutscenes','_BlackWebGetSkipCutscenes','_BlackWebSetEnhancedConfig','_BlackWebSetRenderPercent','_BlackWebSetOverhaulConfig','_BlackWebBuyLoadout','_BlackWebEquipSlot','_BlackWebGetWeaponsJson','_BlackWebPushKeyState','_BlackWebPushMouseState','_BlackWebPushGamepadState','_BlackWebPushIncomingNet','_BlackWebPopOutgoingNet','_BlackWebGetStatusJson','_BlackWebNotifyCanvasReady','_BlackWebDrainAudio','_BlackWebGetBuiltinWgsl']"
+        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_BlackWebRequestBoot','_BlackWebSetRole','_BlackWebSetRoleEx','_BlackWebSetRoleMode','_BlackWebTerritorialAction','_BlackWebConfigurePreMatch','_BlackWebSetSkipCutscenes','_BlackWebGetSkipCutscenes','_BlackWebSetEnhancedConfig','_BlackWebSetRenderPercent','_BlackWebSetOverhaulConfig','_BlackWebBuyLoadout','_BlackWebEquipSlot','_BlackWebGetWeaponsJson','_BlackWebPushKeyState','_BlackWebPushMouseState','_BlackWebPushGamepadState','_BlackWebPushIncomingNet','_BlackWebPopOutgoingNet','_BlackWebGetStatusJson','_BlackWebNotifyCanvasReady','_BlackWebDrainAudio','_BlackWebGetBuiltinWgsl']"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','IDBFS','HEAPU8','HEAP32','HEAPU32','HEAPF32','UTF8ToString','stringToUTF8','lengthBytesUTF8']"
     )
     return()
