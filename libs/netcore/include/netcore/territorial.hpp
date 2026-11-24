@@ -109,6 +109,11 @@ public:
     uint32_t time_remaining_ticks() const { return time_remaining_; }
     bool in_overtime() const { return overtime_; }
     uint16_t waves(Team t) const { return t == attacker_team() ? atk_waves_ : def_waves_; }
+    uint32_t wave_timer_ticks(Team t) const {
+        const std::size_t idx = (t == Team::A) ? 0 : 1;
+        return wave_active_[idx] ? wave_timer_[idx] : 0u;
+    }
+    uint8_t zone_player_count(Team t) const { return static_cast<uint8_t>(zone_count(t)); }
     uint8_t captured_count() const { return captured_; }
     const PlayerTA* find_player(uint8_t id) const;
     const std::vector<PlayerTA>& players() const { return players_; }

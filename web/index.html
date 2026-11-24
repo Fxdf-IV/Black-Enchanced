@@ -1047,6 +1047,49 @@
       background: var(--err);
     }
 
+    .ta-beacon {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      border-radius: 2px;
+      background: var(--bg-base);
+      border: 1px solid var(--border-strong);
+      color: var(--accent);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .ta-beacon.in-zone {
+      border-color: rgba(16, 185, 129, 0.65);
+      background: rgba(16, 185, 129, 0.16);
+      color: #6ee7b7;
+    }
+
+    .ta-beacon-arrow {
+      display: inline-block;
+      font-size: 11px;
+      line-height: 1;
+      transition: transform 90ms linear;
+    }
+
+    .ta-zone-counts {
+      color: var(--text-secondary);
+      white-space: nowrap;
+      font-size: 10px;
+    }
+
+    .ta-wave-banner {
+      padding: 4px 8px;
+      border-radius: 2px;
+      background: rgba(239, 68, 68, 0.16);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      color: #fca5a5;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0.04em;
+    }
+
     .ta-actions-row {
       display: flex;
       align-items: center;
@@ -1295,12 +1338,17 @@
           </div>
         </div>
         <div id="ta-progress-wrap" class="ta-progress-wrap hidden">
-          <span id="ta-progress-label" style="color: var(--text-secondary); white-space: nowrap;">OBJ A</span>
+          <span id="ta-beacon" class="ta-beacon">
+            <span id="ta-beacon-arrow" class="ta-beacon-arrow">▲</span>
+            <span id="ta-beacon-dist">OBJ A</span>
+          </span>
           <div class="ta-progress-track">
             <div id="ta-progress-fill" class="ta-progress-fill"></div>
           </div>
           <span id="ta-progress-pct" style="color: var(--text-primary); min-width: 34px; text-align: right;">0%</span>
+          <span id="ta-zone-counts" class="ta-zone-counts hidden"></span>
         </div>
+        <div id="ta-wave-banner" class="ta-wave-banner hidden">ABATIDO · AGUARDANDO ONDA DE REFORÇO</div>
         <div id="ta-actions-row" class="ta-actions-row hidden">
           <div id="ta-actions-info" style="color: var(--text-secondary);">Escolha seu time antes de iniciar.</div>
           <div class="hud-group">

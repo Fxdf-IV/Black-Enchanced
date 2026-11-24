@@ -176,6 +176,12 @@ TerritorialState HostSession::current_territorial_state() const {
     for (std::size_t i = 0; i < kMaxPlayers; ++i) {
         if (slots_[i].occupied) st.player_teams[i] = slots_[i].team;
     }
+    const auto fill_zone_beacon = [&](uint8_t obj_idx) {
+        if (obj_idx < rules_.objective_zones.size()) {
+            st.active_zone_center = rules_.objective_zones[obj_idx].center;
+            st.active_zone_radius = std::clamp(rules_.objective_zones[obj_idx].radius, 0.0f, 500.0f);
+        }
+    };
     if (!ta_match_) {
         st.match_state = static_cast<uint8_t>(ta::MatchState::Lobby);
         st.attacker_team = 0;
@@ -190,6 +196,7 @@ TerritorialState HostSession::current_territorial_state() const {
         st.attacker_waves = rules_.territorial.attacker_initial_waves;
         st.defender_waves = rules_.territorial.defender_initial_waves;
         st.winner_team = kNoPlayer;
+        fill_zone_beacon(0);
         return st;
     }
     const ta::Team atk = ta_match_->attacker_team();
@@ -206,6 +213,15 @@ TerritorialState HostSession::current_territorial_state() const {
     st.overtime = ta_match_->in_overtime() ? 1u : 0u;
     st.attacker_waves = ta_match_->waves(atk);
     st.defender_waves = ta_match_->waves(def);
+    const auto ticks_to_eta_s = [hz](uint32_t ticks) -> uint8_t {
+        if (ticks == 0u) return 0u;
+        return static_cast<uint8_t>(std::min<uint32_t>(255u, (ticks + hz - 1u) / hz));
+    };
+    st.atk_wave_eta_s = ticks_to_eta_s(ta_match_->wave_timer_ticks(atk));
+    st.def_wave_eta_s = ticks_to_eta_s(ta_match_->wave_timer_ticks(def));
+    st.zone_attackers = std::min<uint8_t>(ta_match_->zone_player_count(atk), static_cast<uint8_t>(kMaxPlayers));
+    st.zone_defenders = std::min<uint8_t>(ta_match_->zone_player_count(def), static_cast<uint8_t>(kMaxPlayers));
+    fill_zone_beacon(st.current_objective);
     const int w = ta_match_->winner();
     st.winner_team = (w == 0) ? 0u : ((w == 1) ? 1u : kNoPlayer);
 

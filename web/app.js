@@ -1521,7 +1521,13 @@ function renderTerritorialHud(st) {
 
   const clockEl = document.getElementById("ta-clock");
   if (clockEl) {
-    clockEl.textContent = ta.overtime ? `OT ${formatClock(ta.timeLeft)}` : formatClock(ta.timeLeft);
+    if ((phase === 1 || phase === 3) && !ta.timeLeft) {
+      clockEl.textContent = phase === 1 ? "PREP" : "INTERVALO";
+    } else if (phase === 5) {
+      clockEl.textContent = "FIM";
+    } else {
+      clockEl.textContent = ta.overtime ? `OT ${formatClock(ta.timeLeft)}` : formatClock(ta.timeLeft);
+    }
     clockEl.classList.toggle("overtime", Boolean(ta.overtime));
   }
 
@@ -1553,21 +1559,70 @@ function renderTerritorialHud(st) {
   }
 
   const progWrap = document.getElementById("ta-progress-wrap");
-  const progLabel = document.getElementById("ta-progress-label");
+  const beaconEl = document.getElementById("ta-beacon");
+  const beaconArrow = document.getElementById("ta-beacon-arrow");
+  const beaconDist = document.getElementById("ta-beacon-dist");
   const progFill = document.getElementById("ta-progress-fill");
   const progPct = document.getElementById("ta-progress-pct");
+  const zoneCountsEl = document.getElementById("ta-zone-counts");
+  const waveBannerEl = document.getElementById("ta-wave-banner");
   const inActiveRound = phase === 2 || phase === 4;
   if (progWrap) progWrap.classList.toggle("hidden", !inActiveRound);
   if (inActiveRound) {
     const pct = Math.max(0, Math.min(100, Math.round(Number(ta.progress || 0) / 10)));
     const objLetter = "ABCDEFGH"[Number(ta.currentObj || 0)] || "A";
     const contested = Number(ta.objState || 0) === 2;
-    if (progLabel) progLabel.textContent = contested ? `OBJ ${objLetter} · CONTESTADO` : `OBJ ${objLetter}`;
+    const inZone = Boolean(ta.inZone);
+    if (beaconEl) beaconEl.classList.toggle("in-zone", inZone);
+    if (beaconArrow) {
+      if (inZone || !ta.hasBeacon) {
+        beaconArrow.textContent = inZone ? "●" : "◆";
+        beaconArrow.style.transform = "rotate(0deg)";
+      } else {
+        beaconArrow.textContent = "▲";
+        beaconArrow.style.transform = `rotate(${Math.round(Number(ta.bearingDeg || 0))}deg)`;
+      }
+    }
+    if (beaconDist) {
+      if (inZone) {
+        beaconDist.textContent = contested ? `ZONA ${objLetter} · CONTESTADA` : `NA ZONA ${objLetter}`;
+      } else if (ta.hasBeacon) {
+        const distM = Math.max(0, Math.round(Number(ta.distM || 0)));
+        beaconDist.textContent = contested ? `OBJ ${objLetter} · ${distM}m · CONTEST.` : `OBJ ${objLetter} · ${distM}m`;
+      } else {
+        beaconDist.textContent = contested ? `OBJ ${objLetter} · CONTESTADO` : `OBJ ${objLetter}`;
+      }
+    }
     if (progFill) {
       progFill.style.width = `${pct}%`;
       progFill.classList.toggle("contested", contested);
     }
     if (progPct) progPct.textContent = `${pct}%`;
+    if (zoneCountsEl) {
+      const zAtk = Number(ta.zoneAtk || 0);
+      const zDef = Number(ta.zoneDef || 0);
+      const hasAny = zAtk > 0 || zDef > 0;
+      zoneCountsEl.classList.toggle("hidden", !hasAny);
+      if (hasAny) zoneCountsEl.textContent = `ZONA ${zAtk}A/${zDef}D`;
+    }
+  }
+
+  if (waveBannerEl) {
+    const localId = st.localSlot ?? state.localPlayerId;
+    const localRow = Array.isArray(st.players) ? st.players.find((p) => p.id === localId) : null;
+    const localDead = inActiveRound && localRow && !localRow.alive;
+    waveBannerEl.classList.toggle("hidden", !localDead);
+    if (localDead) {
+      const myWaves = isAttacker ? Number(ta.atkWaves || 0) : Number(ta.defWaves || 0);
+      const myEta = isAttacker ? Number(ta.atkWaveEta || 0) : Number(ta.defWaveEta || 0);
+      if (myWaves <= 0) {
+        waveBannerEl.textContent = "ABATIDO · SEM ONDAS DE REFORÇO RESTANTES";
+      } else if (myEta > 0) {
+        waveBannerEl.textContent = `ABATIDO · PRÓXIMA ONDA DE REFORÇO EM ${myEta}s (${myWaves} restantes)`;
+      } else {
+        waveBannerEl.textContent = `ABATIDO · PREPARANDO ONDA DE REFORÇO (${myWaves} restantes)`;
+      }
+    }
   }
 
   const actionsRow = document.getElementById("ta-actions-row");

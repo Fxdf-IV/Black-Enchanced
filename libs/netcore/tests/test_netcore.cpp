@@ -180,6 +180,12 @@ void test_protocol_roundtrip_all_messages() {
         .r2_captured = 0,
         .r2_progress_permille = 0,
         .r2_time_s = 0,
+        .active_zone_center = Vec3{12.5f, 1.0f, -24.0f},
+        .active_zone_radius = 7.5f,
+        .atk_wave_eta_s = 12,
+        .def_wave_eta_s = 18,
+        .zone_attackers = 2,
+        .zone_defenders = 1,
     });
     check_roundtrip(TerritorialEvent{.event_type = 1, .team = 0, .index = 0, .count = 1});
     check_roundtrip(TerritorialEvent{.event_type = 2, .team = 1, .index = 0, .count = 2});
@@ -272,6 +278,12 @@ void test_hostile_and_malformed_inputs() {
     CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .overtime = 2}}));
     CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .winner_team = 3}}));
     CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .player_teams = {0, 2, kNoPlayer, kNoPlayer}}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .active_zone_center = Vec3{kWorldLimit + 10.0f, 0, 0}}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .active_zone_radius = -1.0f}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .active_zone_radius = 501.0f}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .active_zone_radius = std::numeric_limits<float>::quiet_NaN()}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .zone_attackers = kMaxPlayers + 1}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .zone_defenders = kMaxPlayers + 1}}));
     CHECK(!is_valid(Message{TerritorialEvent{.event_type = 5, .team = 0, .index = 0, .count = 0}}));
     CHECK(!is_valid(Message{TerritorialEvent{.event_type = 1, .team = 2, .index = 0, .count = 0}}));
     CHECK(!is_valid(Message{TerritorialEvent{.event_type = 1, .team = 0, .index = 17, .count = 0}}));

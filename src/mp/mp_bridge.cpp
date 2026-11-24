@@ -1231,12 +1231,11 @@ BridgeTelemetry GetTelemetry(const uint8_t* guest_base) {
                 .name = s.name,
             };
         }
-        if (g_host_session->rules().game_mode == netcore::GameMode::TerritorialAssault) {
-            const auto ta = g_host_session->current_territorial_state();
+        auto fill_ta_telemetry = [&](const netcore::TerritorialState& ta, uint8_t local_team) {
             t.ta_active = true;
             t.ta_match_state = ta.match_state;
             t.ta_attacker_team = ta.attacker_team;
-            t.ta_local_team = slots[0].team;
+            t.ta_local_team = local_team;
             t.ta_current_objective = ta.current_objective;
             t.ta_objective_count = ta.objective_count;
             t.ta_captured_count = ta.captured_count;
@@ -1253,6 +1252,43 @@ BridgeTelemetry GetTelemetry(const uint8_t* guest_base) {
             t.ta_r2_captured = ta.r2_captured;
             t.ta_r2_progress_permille = ta.r2_progress_permille;
             t.ta_r2_time_s = ta.r2_time_s;
+            t.ta_atk_wave_eta_s = ta.atk_wave_eta_s;
+            t.ta_def_wave_eta_s = ta.def_wave_eta_s;
+            t.ta_zone_attackers = ta.zone_attackers;
+            t.ta_zone_defenders = ta.zone_defenders;
+
+            if (ta.active_zone_radius > 0.1f && t.in_level) {
+                netcore::Vec3 ppos{};
+                netcore::Vec3 pdir{};
+                if (ReadLocalAimOriginAndDir(guest_base, ppos, pdir)) {
+                    const float dx = ta.active_zone_center.x - ppos.x;
+                    const float dy = ta.active_zone_center.y - ppos.y;
+                    const float dz = ta.active_zone_center.z - ppos.z;
+                    const float horiz = std::sqrt(dx * dx + dz * dz);
+                    if (std::isfinite(horiz)) {
+                        t.ta_has_beacon = true;
+                        t.ta_dist_m = horiz;
+                        t.ta_in_zone = (horiz <= ta.active_zone_radius && std::fabs(dy) <= 5.5f);
+                        const float f_len = std::sqrt(pdir.x * pdir.x + pdir.z * pdir.z);
+                        if (f_len > 1e-4f && horiz > 0.05f) {
+                            const float fx = pdir.x / f_len;
+                            const float fz = pdir.z / f_len;
+                            // Em Direct3D (+X direita, +Z frente), right = (fz, -fx) para fwd = (fx, fz).
+                            const float rx = fz;
+                            const float rz = -fx;
+                            const float dot_f = dx * fx + dz * fz;
+                            const float dot_r = dx * rx + dz * rz;
+                            const float deg = std::atan2(dot_r, dot_f) * kRadToDeg;
+                            if (std::isfinite(deg)) {
+                                t.ta_bearing_deg = static_cast<int16_t>(std::lround(deg));
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        if (g_host_session->rules().game_mode == netcore::GameMode::TerritorialAssault) {
+            fill_ta_telemetry(g_host_session->current_territorial_state(), slots[0].team);
         }
     } else if (g_role == Role::Client && g_client_session) {
         t.local_slot = g_client_session->local_player_id();
@@ -1301,6 +1337,39 @@ BridgeTelemetry GetTelemetry(const uint8_t* guest_base) {
             t.ta_r2_captured = ta.r2_captured;
             t.ta_r2_progress_permille = ta.r2_progress_permille;
             t.ta_r2_time_s = ta.r2_time_s;
+            t.ta_atk_wave_eta_s = ta.atk_wave_eta_s;
+            t.ta_def_wave_eta_s = ta.def_wave_eta_s;
+            t.ta_zone_attackers = ta.zone_attackers;
+            t.ta_zone_defenders = ta.zone_defenders;
+
+            if (ta.active_zone_radius > 0.1f && t.in_level) {
+                netcore::Vec3 ppos{};
+                netcore::Vec3 pdir{};
+                if (ReadLocalAimOriginAndDir(guest_base, ppos, pdir)) {
+                    const float dx = ta.active_zone_center.x - ppos.x;
+                    const float dy = ta.active_zone_center.y - ppos.y;
+                    const float dz = ta.active_zone_center.z - ppos.z;
+                    const float horiz = std::sqrt(dx * dx + dz * dz);
+                    if (std::isfinite(horiz)) {
+                        t.ta_has_beacon = true;
+                        t.ta_dist_m = horiz;
+                        t.ta_in_zone = (horiz <= ta.active_zone_radius && std::fabs(dy) <= 5.5f);
+                        const float f_len = std::sqrt(pdir.x * pdir.x + pdir.z * pdir.z);
+                        if (f_len > 1e-4f && horiz > 0.05f) {
+                            const float fx = pdir.x / f_len;
+                            const float fz = pdir.z / f_len;
+                            const float rx = fz;
+                            const float rz = -fx;
+                            const float dot_f = dx * fx + dz * fz;
+                            const float dot_r = dx * rx + dz * rz;
+                            const float deg = std::atan2(dot_r, dot_f) * kRadToDeg;
+                            if (std::isfinite(deg)) {
+                                t.ta_bearing_deg = static_cast<int16_t>(std::lround(deg));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         for (const auto& sp : g_client_session->latest_snapshot().players) {

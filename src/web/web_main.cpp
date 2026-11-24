@@ -538,19 +538,24 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
         if (plen > 0) json.append(prow, static_cast<std::size_t>(std::min<int>(plen, sizeof(prow) - 1)));
     }
     if (tel.ta_active) {
-        char tabuf[384];
+        char tabuf[512];
         const int talen = std::snprintf(
             tabuf, sizeof(tabuf),
             "],\"ta\":{\"state\":%u,\"attackerTeam\":%u,\"localTeam\":%u,\"currentObj\":%u,\"objCount\":%u,"
             "\"captured\":%u,\"objState\":%u,\"progress\":%u,\"timeLeft\":%u,\"overtime\":%s,"
-            "\"atkWaves\":%u,\"defWaves\":%u,\"winner\":%u,"
-            "\"r1Cap\":%u,\"r1Prog\":%u,\"r1Time\":%u,\"r2Cap\":%u,\"r2Prog\":%u,\"r2Time\":%u}}",
+            "\"atkWaves\":%u,\"defWaves\":%u,\"atkWaveEta\":%u,\"defWaveEta\":%u,"
+            "\"zoneAtk\":%u,\"zoneDef\":%u,\"hasBeacon\":%s,\"inZone\":%s,\"distM\":%.1f,\"bearingDeg\":%d,"
+            "\"winner\":%u,\"r1Cap\":%u,\"r1Prog\":%u,\"r1Time\":%u,\"r2Cap\":%u,\"r2Prog\":%u,\"r2Time\":%u}}",
             static_cast<unsigned>(tel.ta_match_state), static_cast<unsigned>(tel.ta_attacker_team),
             static_cast<unsigned>(tel.ta_local_team), static_cast<unsigned>(tel.ta_current_objective),
             static_cast<unsigned>(tel.ta_objective_count), static_cast<unsigned>(tel.ta_captured_count),
             static_cast<unsigned>(tel.ta_current_obj_state), static_cast<unsigned>(tel.ta_progress_permille),
             static_cast<unsigned>(tel.ta_time_left_s), tel.ta_overtime ? "true" : "false",
             static_cast<unsigned>(tel.ta_attacker_waves), static_cast<unsigned>(tel.ta_defender_waves),
+            static_cast<unsigned>(tel.ta_atk_wave_eta_s), static_cast<unsigned>(tel.ta_def_wave_eta_s),
+            static_cast<unsigned>(tel.ta_zone_attackers), static_cast<unsigned>(tel.ta_zone_defenders),
+            tel.ta_has_beacon ? "true" : "false", tel.ta_in_zone ? "true" : "false",
+            static_cast<double>(tel.ta_dist_m), static_cast<int>(tel.ta_bearing_deg),
             static_cast<unsigned>(tel.ta_winner_team), static_cast<unsigned>(tel.ta_r1_captured),
             static_cast<unsigned>(tel.ta_r1_progress_permille), static_cast<unsigned>(tel.ta_r1_time_s),
             static_cast<unsigned>(tel.ta_r2_captured), static_cast<unsigned>(tel.ta_r2_progress_permille),

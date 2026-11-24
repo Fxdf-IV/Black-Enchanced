@@ -308,6 +308,12 @@ struct TerritorialState {
     uint8_t r2_captured = 0;
     uint16_t r2_progress_permille = 0;
     uint16_t r2_time_s = 0;
+    Vec3 active_zone_center;
+    float active_zone_radius = 0.0f;
+    uint8_t atk_wave_eta_s = 0;
+    uint8_t def_wave_eta_s = 0;
+    uint8_t zone_attackers = 0;
+    uint8_t zone_defenders = 0;
     friend bool operator==(const TerritorialState&, const TerritorialState&) = default;
 };
 

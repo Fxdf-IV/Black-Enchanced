@@ -147,7 +147,10 @@ bool valid(const TerritorialState& m) {
         m.current_objective > m.objective_count || m.current_obj_state > 5u || m.progress_permille > 1000u ||
         m.overtime > 1u || (m.winner_team > 1u && m.winner_team != kNoPlayer) ||
         m.r1_captured > m.objective_count || m.r2_captured > m.objective_count ||
-        m.r1_progress_permille > 1000u || m.r2_progress_permille > 1000u) {
+        m.r1_progress_permille > 1000u || m.r2_progress_permille > 1000u ||
+        !valid_position(m.active_zone_center) || !finite(m.active_zone_radius) ||
+        m.active_zone_radius < 0.0f || m.active_zone_radius > 500.0f ||
+        m.zone_attackers > kMaxPlayers || m.zone_defenders > kMaxPlayers) {
         return false;
     }
     for (uint8_t t : m.player_teams) {
@@ -314,6 +317,12 @@ void write(ByteWriter& w, const TerritorialState& m) {
     w.u8(m.r2_captured);
     w.u16(m.r2_progress_permille);
     w.u16(m.r2_time_s);
+    put(w, m.active_zone_center);
+    w.f32(m.active_zone_radius);
+    w.u8(m.atk_wave_eta_s);
+    w.u8(m.def_wave_eta_s);
+    w.u8(m.zone_attackers);
+    w.u8(m.zone_defenders);
 }
 void write(ByteWriter& w, const TerritorialEvent& m) {
     w.u8(m.event_type);
@@ -523,6 +532,12 @@ bool read(ByteReader& r, TerritorialState& m) {
     m.r2_captured = r.u8();
     m.r2_progress_permille = r.u16();
     m.r2_time_s = r.u16();
+    m.active_zone_center = get_vec3(r);
+    m.active_zone_radius = r.f32();
+    m.atk_wave_eta_s = r.u8();
+    m.def_wave_eta_s = r.u8();
+    m.zone_attackers = r.u8();
+    m.zone_defenders = r.u8();
     return true;
 }
 bool read(ByteReader& r, TerritorialEvent& m) {

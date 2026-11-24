@@ -12,7 +12,7 @@ Plataforma-alvo: recompilação do **Xbox NTSC-U** (não PS2). Equipamentos: som
 ## Mensagens `0xB1AC` (protocolo v4)
 
 - `TeamSelectRequest` (20, cliente → host, `Reliable`): escolha de equipe no Lobby (`team` 0 ou 1). Ignorado após o início da partida.
-- `TerritorialState` (21, host → clientes, `Unreliable`): estado autoritativo para o HUD (fase, equipe atacante, objetivo atual, progresso `0..1000`, tempo restante, overtime, ondas, placar R1/R2 e times por slot). Clientes que tentarem enviar esta mensagem são penalizados/expulsos (`KickReason::Malformed`).
+- `TerritorialState` (21, host → clientes, `Unreliable`): estado autoritativo para o HUD (fase, equipe atacante, objetivo atual, progresso `0..1000`, tempo restante, overtime, ondas, placar R1/R2, times por slot, centro/raio da zona ativa para bússola/distância, ETA da próxima onda e contagem de jogadores na zona). Clientes que tentarem enviar esta mensagem são penalizados/expulsos (`KickReason::Malformed`).
 - `TerritorialEvent` (22, host → clientes, `Reliable`): eventos discretos (mudança de fase, objetivo capturado, onda de respawn, overtime, fim de rodada). Exclusivo do host.
 
 ## Lacunas do GDD resolvidas (ajustáveis após playtest)
@@ -35,5 +35,5 @@ Plataforma-alvo: recompilação do **Xbox NTSC-U** (não PS2). Equipamentos: som
 
 ## Próximos passos
 
-- Validar em playtest real de 2+ abas WebGPU (`tools/serve_web.py`) o ciclo completo do Territorial Assault (Lobby -> seleção de times -> Preparação 15 SP -> Rodada 1 -> Intervalo com inversão -> Rodada 2 -> Resultados) sobre o `default.xbe` NTSC-U.
-- Refinar zonas de captura e spawns específicos por missão (hoje derivados automaticamente da posição inicial + `kAliveList` da missão carregada) e adicionar marcadores visuais/sonoros 3D das zonas no viewport após calibrar coordenadas reais de cada fase.
+- Validar in-level em 2+ abas WebGPU (ambos os jogadores dentro da Missão 1 simultaneamente) a captura de zona A -> B com distância/bússola, compra de kit `15 SP` na Preparação/Intervalo e respawn em onda coletiva após eliminação.
+- Calibrar zonas de captura e spawns fixos por missão (hoje derivados automaticamente da posição inicial + `kAliveList` da fase carregada) conforme o playtest real em cada mapa de BLACK.

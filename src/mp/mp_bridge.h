@@ -85,6 +85,14 @@ struct BridgeTelemetry {
     uint8_t ta_r2_captured = 0;
     uint16_t ta_r2_progress_permille = 0;
     uint16_t ta_r2_time_s = 0;
+    uint8_t ta_atk_wave_eta_s = 0;
+    uint8_t ta_def_wave_eta_s = 0;
+    uint8_t ta_zone_attackers = 0;
+    uint8_t ta_zone_defenders = 0;
+    bool ta_has_beacon = false;
+    bool ta_in_zone = false;
+    float ta_dist_m = 0.0f;
+    int16_t ta_bearing_deg = 0;
 
     std::array<HudPlayerRow, netcore::kMaxPlayers> players{};
 };
