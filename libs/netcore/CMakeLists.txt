@@ -9,6 +9,7 @@ add_library(netcore STATIC
     src/protocol.cpp
     src/rules.cpp
     src/session.cpp
+    src/territorial.cpp
 )
 
 target_include_directories(netcore PUBLIC
@@ -23,4 +24,7 @@ if(NETCORE_BUILD_TESTS)
     )
     target_link_libraries(netcore_tests PRIVATE netcore)
     add_test(NAME netcore_tests COMMAND netcore_tests)
+    add_executable(territorial_tests tests/test_territorial.cpp)
+    target_link_libraries(territorial_tests PRIVATE netcore)
+    add_test(NAME territorial_tests COMMAND territorial_tests)
 endif()
