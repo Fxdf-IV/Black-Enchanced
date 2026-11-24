@@ -7,7 +7,7 @@
 namespace netcore {
 
 // Versão do protocolo de rede. Cliente e host recusam a conexão quando divergem.
-inline constexpr uint16_t kProtocolVersion = 3;
+inline constexpr uint16_t kProtocolVersion = 4;
 
 // Marca no início de todo pacote, para descartar lixo cedo.
 inline constexpr uint16_t kPacketMagic = 0xB1AC;
@@ -21,6 +21,7 @@ inline constexpr std::size_t kMaxPacketSize = 1200;
 inline constexpr std::size_t kMaxNameLength = 16;
 inline constexpr std::size_t kMaxWeapons = 32;
 inline constexpr std::size_t kMaxSpawnPoints = 64;
+inline constexpr std::size_t kMaxTerritorialObjectives = 16;
 
 // Coordenadas fora deste cubo são tratadas como inválidas (unidades do mundo do jogo).
 inline constexpr float kWorldLimit = 100000.0f;

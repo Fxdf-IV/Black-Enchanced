@@ -8,6 +8,7 @@
 
 #include "netcore/limits.hpp"
 #include "netcore/protocol.hpp"
+#include "netcore/territorial.hpp"
 
 namespace netcore {
 
@@ -33,9 +34,19 @@ struct SpawnPoint {
     float yaw = 0.0f;
 };
 
+// Região espacial de um objetivo territorial (separada da lógica de modo, configurável por mapa).
+struct CaptureZone {
+    Vec3 center{};
+    float radius = 10.0f;       // raio horizontal no plano XZ
+    float half_height = 5.0f;   // tolerância vertical no eixo Y
+
+    bool contains(const Vec3& p) const;
+};
+
 enum class GameMode : uint8_t {
     PvP = 0,
     Coop = 1,
+    TerritorialAssault = 2,
 };
 
 struct RulesConfig {
@@ -70,11 +81,21 @@ struct RulesConfig {
     std::vector<WeaponSpec> weapons;
     std::vector<SpawnPoint> spawns;
 
+    // Configuração específica do modo Territorial Assault (usada somente quando game_mode == TerritorialAssault).
+    ta::Config territorial{};
+    uint32_t ta_intermission_ticks = 0;  // 0 = avanço manual via begin_next_round(); >0 = automático
+    std::vector<CaptureZone> objective_zones;
+    std::vector<SpawnPoint> attacker_spawns;
+    std::vector<SpawnPoint> defender_spawns;
+
     // Configuração padrão do MVP 0.1 com as armas clássicas de BLACK.
     static RulesConfig default_deathmatch();
 
     // Variante com economia e posse de loadout estritamente impostas no host.
     static RulesConfig cs_loadout_deathmatch();
+
+    // Variante Territorial Assault com armas nativas de BLACK precificadas em Supply Points (15 SP).
+    static RulesConfig territorial_assault();
 
     // Hash determinístico FNV-1a (32 bits) dos parâmetros que afetam a simulação.
     uint32_t compute_hash() const;

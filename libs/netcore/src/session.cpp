@@ -51,6 +51,7 @@ HostSession::HostSession(ITransport& transport, RulesConfig rules, std::string h
     auto& host_slot = slots_[0];
     host_slot.occupied = true;
     host_slot.is_local_host = true;
+    host_slot.team = 0;  // Equipe A por padrão no Territorial Assault
     host_slot.name = host_name.empty() ? "Host" : std::move(host_name);
     if (host_slot.name.size() > kMaxNameLength) host_slot.name.resize(kMaxNameLength);
     host_slot.health = rules_.max_health;
@@ -63,7 +64,221 @@ HostSession::HostSession(ITransport& transport, RulesConfig rules, std::string h
     }
 }
 
+bool HostSession::set_player_team(uint8_t player_id, ta::Team team) {
+    if (rules_.game_mode != GameMode::TerritorialAssault || ta_match_) return false;
+    if (player_id >= kMaxPlayers || !slots_[player_id].occupied) return false;
+    slots_[player_id].team = static_cast<uint8_t>(team);
+    broadcast_territorial_state();
+    return true;
+}
+
+bool HostSession::enter_preparation() {
+    if (rules_.game_mode != GameMode::TerritorialAssault || ta_match_) return false;
+    ta::Config cfg = rules_.territorial;
+    cfg.tick_rate_hz = rules_.tick_rate_hz;
+    cfg.max_players = std::min<uint8_t>(rules_.max_players, static_cast<uint8_t>(kMaxPlayers));
+    cfg.supply_points = rules_.max_credits;
+    auto match = std::make_unique<ta::TerritorialMatch>(cfg);
+    for (const auto& s : slots_) {
+        if (!s.occupied) continue;
+        match->add_player(s.player_id, s.team == 0 ? ta::Team::A : ta::Team::B);
+    }
+    if (!match->start_match()) return false;
+    ta_match_ = std::move(match);
+    phase_ = MatchPhase::Warmup;
+    winner_ = kNoPlayer;
+    recent_fires_.clear();
+    recent_blasts_.clear();
+    recent_ta_events_.clear();
+    for (auto& s : slots_) {
+        if (!s.occupied) continue;
+        s.kills = 0;
+        s.deaths = 0;
+        s.entered_level = s.is_local_host;
+        init_slot_loadout(s);
+        broadcast_msg(transport_, build_loadout_state(s, LoadoutResult::Ok));
+    }
+    drain_territorial_events();
+    broadcast_territorial_state();
+    return true;
+}
+
+void HostSession::spawn_player_for_territorial_role(HostPlayerSlot& slot, uint8_t spawn_cursor) {
+    const bool is_attacker = ta_match_ &&
+                             (ta_match_->role_of(slot.team == 0 ? ta::Team::A : ta::Team::B) == ta::Role::Attack);
+    const auto& pool = is_attacker
+                           ? (rules_.attacker_spawns.empty() ? rules_.spawns : rules_.attacker_spawns)
+                           : (rules_.defender_spawns.empty() ? rules_.spawns : rules_.defender_spawns);
+    SpawnPoint sp{};
+    uint8_t sp_idx = 0;
+    if (!pool.empty()) {
+        sp_idx = static_cast<uint8_t>(spawn_cursor % pool.size());
+        sp = pool[sp_idx];
+    }
+    slot.position = sp.position;
+    slot.yaw = sp.yaw;
+    slot.pitch = 0.0f;
+    slot.velocity = Vec3{0.0f, 0.0f, 0.0f};
+    const uint16_t max_hp = (slot.tactical_flags & kLoadoutArmor)
+                                ? std::min<uint16_t>(255u, static_cast<uint16_t>(rules_.max_health) + rules_.armor_bonus_health)
+                                : rules_.max_health;
+    slot.health = static_cast<uint8_t>(max_hp);
+    slot.flags = kFlagAlive;
+    slot.respawn_at_tick = 0;
+    slot.last_state_tick = 0;
+    slot.spawn_tick = tick_;
+    slot.respawn_grace_until_tick = tick_ + std::max<uint16_t>(1, rules_.tick_rate_hz);
+    if (const auto* w = rules_.find_weapon(slot.weapon)) {
+        slot.ammo_in_mag = w->magazine_size;
+    }
+    broadcast_msg(transport_, RespawnEvent{
+                                  .player = slot.player_id,
+                                  .spawn_point = sp_idx,
+                                  .position = slot.position,
+                                  .yaw = slot.yaw,
+                              });
+    broadcast_msg(transport_, build_loadout_state(slot, static_cast<LoadoutResult>(slot.last_loadout_result)));
+}
+
+bool HostSession::begin_next_round() {
+    if (rules_.game_mode != GameMode::TerritorialAssault || !ta_match_) return false;
+    if (!ta_match_->begin_round()) return false;
+    phase_ = MatchPhase::Running;
+    match_start_tick_ = tick_;
+    ta_intermission_remaining_ = 0;
+    uint8_t atk_cursor = 0;
+    uint8_t def_cursor = 0;
+    for (auto& s : slots_) {
+        if (!s.occupied) continue;
+        const bool is_atk = ta_match_->role_of(s.team == 0 ? ta::Team::A : ta::Team::B) == ta::Role::Attack;
+        spawn_player_for_territorial_role(s, is_atk ? atk_cursor++ : def_cursor++);
+    }
+    broadcast_msg(transport_, MatchStart{
+                                  .start_tick = match_start_tick_,
+                                  .time_limit_s = static_cast<uint16_t>(
+                                      ta_match_->time_remaining_ticks() / std::max<uint16_t>(1, rules_.tick_rate_hz)),
+                                  .kill_limit = 0,
+                                  .arena_id = active_arena_id_,
+                                  .game_mode = static_cast<uint8_t>(rules_.game_mode),
+                                  .available_weapon_mask = available_weapon_mask_,
+                              });
+    broadcast_roster();
+    drain_territorial_events();
+    broadcast_territorial_state();
+    return true;
+}
+
+TerritorialState HostSession::current_territorial_state() const {
+    TerritorialState st{};
+    st.tick = tick_;
+    const uint16_t hz = std::max<uint16_t>(1, rules_.tick_rate_hz);
+    st.player_teams.fill(kNoPlayer);
+    for (std::size_t i = 0; i < kMaxPlayers; ++i) {
+        if (slots_[i].occupied) st.player_teams[i] = slots_[i].team;
+    }
+    if (!ta_match_) {
+        st.match_state = static_cast<uint8_t>(ta::MatchState::Lobby);
+        st.attacker_team = 0;
+        st.current_objective = 0;
+        st.objective_count = std::clamp<uint8_t>(rules_.territorial.objective_count, 1,
+                                                 static_cast<uint8_t>(kMaxTerritorialObjectives));
+        st.captured_count = 0;
+        st.current_obj_state = static_cast<uint8_t>(ta::ObjectiveState::Locked);
+        st.progress_permille = 0;
+        st.time_left_s = static_cast<uint16_t>(std::min<uint32_t>(0xFFFFu, rules_.territorial.initial_time_ticks / hz));
+        st.overtime = 0;
+        st.attacker_waves = rules_.territorial.attacker_initial_waves;
+        st.defender_waves = rules_.territorial.defender_initial_waves;
+        st.winner_team = kNoPlayer;
+        return st;
+    }
+    const ta::Team atk = ta_match_->attacker_team();
+    const ta::Team def = (atk == ta::Team::A) ? ta::Team::B : ta::Team::A;
+    st.match_state = static_cast<uint8_t>(ta_match_->state());
+    st.attacker_team = static_cast<uint8_t>(atk);
+    st.objective_count = std::clamp<uint8_t>(rules_.territorial.objective_count, 1,
+                                             static_cast<uint8_t>(kMaxTerritorialObjectives));
+    st.current_objective = std::min(ta_match_->current_objective(), st.objective_count);
+    st.captured_count = std::min(ta_match_->captured_count(), st.objective_count);
+    st.current_obj_state = static_cast<uint8_t>(ta_match_->objective_state(ta_match_->current_objective()));
+    st.progress_permille = ta_match_->progress_permille();
+    st.time_left_s = static_cast<uint16_t>(std::min<uint32_t>(0xFFFFu, ta_match_->time_remaining_ticks() / hz));
+    st.overtime = ta_match_->in_overtime() ? 1u : 0u;
+    st.attacker_waves = ta_match_->waves(atk);
+    st.defender_waves = ta_match_->waves(def);
+    const int w = ta_match_->winner();
+    st.winner_team = (w == 0) ? 0u : ((w == 1) ? 1u : kNoPlayer);
+
+    const auto& r1 = ta_match_->round_result(1);
+    const auto& r2 = ta_match_->round_result(2);
+    st.r1_captured = std::min(r1.captured, st.objective_count);
+    st.r1_progress_permille = std::min<uint16_t>(r1.progress_permille, 1000u);
+    st.r1_time_s = static_cast<uint16_t>(std::min<uint32_t>(0xFFFFu, r1.elapsed_ticks / hz));
+    st.r2_captured = std::min(r2.captured, st.objective_count);
+    st.r2_progress_permille = std::min<uint16_t>(r2.progress_permille, 1000u);
+    st.r2_time_s = static_cast<uint16_t>(std::min<uint32_t>(0xFFFFu, r2.elapsed_ticks / hz));
+    return st;
+}
+
+void HostSession::broadcast_territorial_state() {
+    if (rules_.game_mode != GameMode::TerritorialAssault) return;
+    broadcast_msg(transport_, current_territorial_state());
+}
+
+void HostSession::drain_territorial_events() {
+    if (!ta_match_) return;
+    const auto evs = ta_match_->drain_events();
+    if (evs.empty()) return;
+    for (const auto& ev : evs) {
+        TerritorialEvent net_ev{
+            .event_type = static_cast<uint8_t>(ev.type),
+            .team = static_cast<uint8_t>(ev.team),
+            .index = ev.index,
+            .count = ev.count,
+        };
+        if (recent_ta_events_.size() < 64) {
+            recent_ta_events_.push_back(net_ev);
+        }
+        broadcast_msg(transport_, net_ev);
+
+        if (ev.type == ta::EventType::WaveSpawned) {
+            uint8_t cursor = 0;
+            for (auto& s : slots_) {
+                if (!s.occupied || s.team != static_cast<uint8_t>(ev.team)) continue;
+                const auto* p = ta_match_->find_player(s.player_id);
+                if (p && p->alive && (s.flags & kFlagAlive) == 0) {
+                    spawn_player_for_territorial_role(s, cursor++);
+                }
+            }
+        } else if (ev.type == ta::EventType::RoundEnded) {
+            if (ta_match_->state() == ta::MatchState::Intermission) {
+                phase_ = MatchPhase::Warmup;
+                ta_intermission_remaining_ = rules_.ta_intermission_ticks;
+                for (auto& s : slots_) {
+                    if (!s.occupied) continue;
+                    s.credits = rules_.max_credits;
+                    s.flags |= kFlagAlive;
+                    broadcast_msg(transport_, build_loadout_state(s, LoadoutResult::Ok));
+                }
+            } else if (ta_match_->state() == ta::MatchState::Results) {
+                phase_ = MatchPhase::Ended;
+                const int w = ta_match_->winner();
+                winner_ = (w == 0) ? 0u : ((w == 1) ? 1u : kNoPlayer);
+                broadcast_msg(transport_, MatchEnd{.winner = winner_});
+            }
+        }
+    }
+    broadcast_territorial_state();
+}
+
 void HostSession::start_match() {
+    if (rules_.game_mode == GameMode::TerritorialAssault) {
+        if (!ta_match_) {
+            if (!enter_preparation()) return;
+        }
+        (void)begin_next_round();
+        return;
+    }
     phase_ = MatchPhase::Running;
     match_start_tick_ = tick_;
     winner_ = kNoPlayer;
@@ -88,6 +303,9 @@ void HostSession::start_match() {
                                   .available_weapon_mask = available_weapon_mask_,
                               });
     broadcast_roster();
+    if (rules_.game_mode == GameMode::TerritorialAssault) {
+        broadcast_territorial_state();
+    }
 }
 
 void HostSession::set_level_context(uint8_t arena_id, uint32_t available_weapon_mask) {
@@ -197,11 +415,16 @@ bool HostSession::apply_damage_internal(uint8_t attacker_id, uint8_t victim_id, 
     HostPlayerSlot* shooter = has_valid_killer ? &slots_[attacker_id] : nullptr;
     if (!target.occupied || (target.flags & kFlagAlive) == 0) return false;
     if (has_valid_killer && !shooter->occupied) return false;
+    if (has_valid_killer && rules_.game_mode == GameMode::TerritorialAssault && !rules_.friendly_fire &&
+        shooter->team == target.team) {
+        return false;
+    }
 
     if (amount >= target.health) {
         target.health = 0;
         target.flags &= ~uint8_t(kFlagAlive);
-        target.respawn_at_tick = tick_ + rules_.respawn_delay_ticks;
+        const bool is_ta = (rules_.game_mode == GameMode::TerritorialAssault);
+        target.respawn_at_tick = is_ta ? 0 : (tick_ + rules_.respawn_delay_ticks);
         ++target.deaths;
         if (shooter) {
             ++shooter->kills;
@@ -214,12 +437,15 @@ bool HostSession::apply_damage_internal(uint8_t attacker_id, uint8_t victim_id, 
             target.credits = static_cast<uint16_t>(
                 std::min<uint32_t>(rules_.max_credits, static_cast<uint32_t>(target.credits) + rules_.death_bonus_credits));
         }
-        // Limpa equipamento comprado da vítima ao morrer (economia CS).
-        target.owned_primary = kNoWeapon;
-        target.owned_secondary = default_secondary_id(rules_);
-        target.tactical_flags = 0;
-        if (target.owned_secondary != kNoWeapon) {
-            target.weapon = target.owned_secondary;
+        // Em Deathmatch limpa equipamento comprado ao morrer; em Territorial Assault o kit de Supply Points
+        // é preservado durante a rodada e só pode ser trocado entre rodadas (GDD §5.1).
+        if (!is_ta) {
+            target.owned_primary = kNoWeapon;
+            target.owned_secondary = default_secondary_id(rules_);
+            target.tactical_flags = 0;
+            if (target.owned_secondary != kNoWeapon) {
+                target.weapon = target.owned_secondary;
+            }
         }
 
         broadcast_msg(transport_, DamageEvent{
@@ -237,7 +463,13 @@ bool HostSession::apply_damage_internal(uint8_t attacker_id, uint8_t victim_id, 
             broadcast_msg(transport_, build_loadout_state(*shooter, LoadoutResult::Ok));
         }
         broadcast_msg(transport_, build_loadout_state(target, LoadoutResult::Ok));
-        check_match_end();
+        if (is_ta) {
+            if (ta_match_) {
+                ta_match_->kill_player(target.player_id);
+            }
+        } else {
+            check_match_end();
+        }
     } else {
         target.health = static_cast<uint8_t>(target.health - amount);
         broadcast_msg(transport_, DamageEvent{
@@ -269,8 +501,28 @@ void HostSession::tick() {
         }
     }
 
-    // 2. Respawns pendentes
-    if (phase_ == MatchPhase::Running) {
+    // 2. Respawns pendentes / simulação de Territorial Assault
+    if (rules_.game_mode == GameMode::TerritorialAssault) {
+        if (ta_match_) {
+            const ta::MatchState st = ta_match_->state();
+            if (st == ta::MatchState::Intermission && ta_intermission_remaining_ > 0) {
+                if (--ta_intermission_remaining_ == 0) {
+                    (void)begin_next_round();
+                }
+            } else if (st == ta::MatchState::Round1 || st == ta::MatchState::Round2) {
+                // Ocupação de zona é 100% calculada pelo host a partir das posições já validadas.
+                const uint8_t obj_idx = ta_match_->current_objective();
+                const bool has_zone = obj_idx < rules_.objective_zones.size();
+                for (const auto& s : slots_) {
+                    if (!s.occupied || (s.flags & kFlagAlive) == 0) continue;
+                    const bool inside = has_zone && rules_.objective_zones[obj_idx].contains(s.position);
+                    ta_match_->set_in_zone(s.player_id, inside);
+                }
+                ta_match_->tick();
+                drain_territorial_events();
+            }
+        }
+    } else if (phase_ == MatchPhase::Running) {
         for (auto& s : slots_) {
             if (!s.occupied) continue;
             if ((s.flags & kFlagAlive) == 0 && s.respawn_at_tick != 0 && tick_ >= s.respawn_at_tick) {
@@ -287,6 +539,9 @@ void HostSession::tick() {
         std::max<uint32_t>(1, rules_.tick_rate_hz / std::max<uint16_t>(1, rules_.snapshot_rate_hz));
     if (tick_ % snap_interval == 0) {
         broadcast_snapshot();
+        if (rules_.game_mode == GameMode::TerritorialAssault) {
+            broadcast_territorial_state();
+        }
     }
 }
 
@@ -341,6 +596,8 @@ void HostSession::handle_packet(PeerId peer, const std::vector<uint8_t>& payload
         handle_blast(*slot, *blast);
     } else if (const auto* req = std::get_if<LoadoutRequest>(&msg)) {
         handle_loadout_request(*slot, *req);
+    } else if (const auto* ts = std::get_if<TeamSelectRequest>(&msg)) {
+        handle_team_select(*slot, *ts);
     } else if (const auto* ping = std::get_if<Ping>(&msg)) {
         send_msg(transport_, peer, Pong{.nonce = ping->nonce, .echo_ms = ping->sent_ms, .host_tick = tick_});
     } else if (std::holds_alternative<Leave>(msg)) {
@@ -354,15 +611,25 @@ void HostSession::handle_packet(PeerId peer, const std::vector<uint8_t>& payload
 
 void HostSession::handle_disconnect(PeerId peer) {
     bool changed = false;
+    uint8_t removed_id = kNoPlayer;
     if (auto* slot = find_slot_by_peer(peer)) {
-        const uint8_t id = slot->player_id;
+        removed_id = slot->player_id;
         *slot = HostPlayerSlot{};
-        slot->player_id = id;
+        slot->player_id = removed_id;
         changed = true;
     }
     unauthenticated_packets_.erase(peer);
     unauthenticated_violations_.erase(peer);
-    if (changed) broadcast_roster();
+    if (changed) {
+        if (rules_.game_mode == GameMode::TerritorialAssault) {
+            if (ta_match_ && removed_id != kNoPlayer) {
+                ta_match_->remove_player(removed_id);
+                drain_territorial_events();
+            }
+            broadcast_territorial_state();
+        }
+        broadcast_roster();
+    }
 }
 
 void HostSession::handle_hello(PeerId peer, const Hello& msg) {
@@ -406,6 +673,12 @@ void HostSession::handle_hello(PeerId peer, const Hello& msg) {
         return;
     }
 
+    if (rules_.game_mode == GameMode::TerritorialAssault && ta_match_) {
+        send_msg(transport_, peer, Reject{RejectReason::NotAccepting});
+        transport_.disconnect(peer);
+        return;
+    }
+
     HostPlayerSlot* free_slot = nullptr;
     for (std::size_t i = 1; i < cap; ++i) {
         if (!slots_[i].occupied) {
@@ -425,6 +698,18 @@ void HostSession::handle_hello(PeerId peer, const Hello& msg) {
     free_slot->name = msg.name;
     free_slot->kills = 0;
     free_slot->deaths = 0;
+    if (rules_.game_mode == GameMode::TerritorialAssault) {
+        uint8_t count_a = 0;
+        uint8_t count_b = 0;
+        for (const auto& s : slots_) {
+            if (!s.occupied || s.player_id == free_slot->player_id) continue;
+            if (s.team == 0) ++count_a;
+            else ++count_b;
+        }
+        free_slot->team = (count_b <= count_a) ? 1u : 0u;
+    } else {
+        free_slot->team = 0u;
+    }
     init_slot_loadout(*free_slot);
     if (const auto* w = rules_.find_weapon(free_slot->weapon)) {
         free_slot->ammo_in_mag = w->magazine_size;
@@ -460,6 +745,9 @@ void HostSession::handle_hello(PeerId peer, const Hello& msg) {
                                    });
     }
     broadcast_roster();
+    if (rules_.game_mode == GameMode::TerritorialAssault) {
+        broadcast_territorial_state();
+    }
 }
 
 void HostSession::handle_player_state(HostPlayerSlot& slot, const PlayerState& msg) {
@@ -590,6 +878,12 @@ void HostSession::handle_loadout_request(HostPlayerSlot& slot, const LoadoutRequ
     (void)apply_loadout(slot, msg);
 }
 
+void HostSession::handle_team_select(HostPlayerSlot& slot, const TeamSelectRequest& msg) {
+    if (rules_.game_mode != GameMode::TerritorialAssault || ta_match_) return;
+    slot.team = (msg.team == 0u) ? 0u : 1u;
+    broadcast_territorial_state();
+}
+
 bool HostSession::apply_validated_fire(HostPlayerSlot& shooter, const FireEvent& msg) {
     if (phase_ != MatchPhase::Running) return false;
     if ((shooter.flags & kFlagAlive) == 0) return false;
@@ -708,6 +1002,9 @@ LoadoutState HostSession::build_loadout_state(const HostPlayerSlot& slot, Loadou
     uint16_t buy_left = 0xFFFFu;
     if (phase_ == MatchPhase::Ended || (slot.flags & kFlagAlive) == 0) {
         buy_left = 0;
+    } else if (rules_.game_mode == GameMode::TerritorialAssault) {
+        // Alteração de loadout liberada em Lobby/Preparation/Intermission e bloqueada em combate (GDD §5.1).
+        buy_left = (phase_ == MatchPhase::Running) ? 0u : 0xFFFFu;
     } else if (rules_.buy_window_ticks > 0 && phase_ == MatchPhase::Running) {
         const uint32_t elapsed = (tick_ >= slot.spawn_tick) ? (tick_ - slot.spawn_tick) : 0;
         buy_left = (elapsed <= rules_.buy_window_ticks)
@@ -740,7 +1037,14 @@ bool HostSession::apply_loadout(HostPlayerSlot& slot, const LoadoutRequest& req)
     if (phase_ == MatchPhase::Ended || (slot.flags & kFlagAlive) == 0) {
         return fail(LoadoutResult::NotAliveOrEnded);
     }
-    if (rules_.buy_window_ticks > 0 && phase_ == MatchPhase::Running) {
+    if (rules_.game_mode == GameMode::TerritorialAssault) {
+        if (phase_ == MatchPhase::Running) {
+            return fail(LoadoutResult::BuyWindowClosed);
+        }
+        if (req.primary_weapon == kNoWeapon) {
+            return fail(LoadoutResult::InvalidItem);  // GDD §5.3: arma primária obrigatória
+        }
+    } else if (rules_.buy_window_ticks > 0 && phase_ == MatchPhase::Running) {
         const uint32_t elapsed = (tick_ >= slot.spawn_tick) ? (tick_ - slot.spawn_tick) : 0;
         if (elapsed > rules_.buy_window_ticks) {
             return fail(LoadoutResult::BuyWindowClosed);
@@ -917,7 +1221,10 @@ void HostSession::broadcast_snapshot() {
     WorldSnapshot snap;
     snap.tick = tick_;
     snap.phase = phase_;
-    if (phase_ == MatchPhase::Running && rules_.time_limit_s > 0) {
+    if (rules_.game_mode == GameMode::TerritorialAssault && ta_match_) {
+        const uint16_t hz = std::max<uint16_t>(1, rules_.tick_rate_hz);
+        snap.time_left_s = static_cast<uint16_t>(std::min<uint32_t>(0xFFFFu, ta_match_->time_remaining_ticks() / hz));
+    } else if (phase_ == MatchPhase::Running && rules_.time_limit_s > 0) {
         const uint32_t elapsed_s = (tick_ - match_start_tick_) / std::max<uint16_t>(1, rules_.tick_rate_hz);
         snap.time_left_s =
             elapsed_s >= rules_.time_limit_s ? 0 : static_cast<uint16_t>(rules_.time_limit_s - elapsed_s);
@@ -1025,6 +1332,13 @@ bool ClientSession::send_loadout_request(const LoadoutRequest& req) {
     return transport_.send(host_peer_, Channel::Reliable, bytes);
 }
 
+bool ClientSession::send_team_select(ta::Team team) {
+    if (!joined_) return false;
+    auto bytes = encode(TeamSelectRequest{.team = static_cast<uint8_t>(team)});
+    if (bytes.empty()) return false;
+    return transport_.send(host_peer_, Channel::Reliable, bytes);
+}
+
 bool ClientSession::send_ping(uint32_t nonce, uint32_t now_ms) {
     auto bytes = encode(Ping{.nonce = nonce, .sent_ms = now_ms});
     if (bytes.empty()) return false;
@@ -1093,6 +1407,14 @@ void ClientSession::handle_message(const Message& msg) {
             if (entry.player_id < kMaxPlayers) {
                 player_names_[entry.player_id] = entry.name;
             }
+        }
+    } else if (const auto* ta_st = std::get_if<TerritorialState>(&msg)) {
+        if (!latest_ta_state_.has_value() || ta_st->tick >= latest_ta_state_->tick) {
+            latest_ta_state_ = *ta_st;
+        }
+    } else if (const auto* ta_ev = std::get_if<TerritorialEvent>(&msg)) {
+        if (recent_ta_events_.size() < 64) {
+            recent_ta_events_.push_back(*ta_ev);
         }
     } else if (const auto* pong = std::get_if<Pong>(&msg)) {
         last_pong_ = *pong;

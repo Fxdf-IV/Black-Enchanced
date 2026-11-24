@@ -1,12 +1,18 @@
-# Territorial Assault — decisões de regra (Fase 1 do GDD)
+# Territorial Assault — decisões de regra e protocolo (Fase 1 + `0xB1AC`)
 
-Implementação: [territorial.hpp](../libs/netcore/include/netcore/territorial.hpp) / [territorial.cpp](../libs/netcore/src/territorial.cpp),
-testes em [test_territorial.cpp](../libs/netcore/tests/test_territorial.cpp). Lógica pura (C++20), relógio injetado
-(`tick()` a 30 Hz), sem protocolo novo, sem ligação com o motor e sem efeito na campanha offline.
-Todos os valores abaixo são hipóteses de balanceamento e ficam em `ta::Config`.
+Implementação em `libs/netcore` (C++20 puro, sem dependência do motor ou de rede externa, sem efeito na campanha offline):
+- Lógica pura: [territorial.hpp](../libs/netcore/include/netcore/territorial.hpp) / [territorial.cpp](../libs/netcore/src/territorial.cpp), testes em [test_territorial.cpp](../libs/netcore/tests/test_territorial.cpp).
+- Protocolo `0xB1AC` (v4), regras de Supply Points e integração autoritativa Host/Cliente: [protocol.hpp](../libs/netcore/include/netcore/protocol.hpp), [protocol.cpp](../libs/netcore/src/protocol.cpp), [rules.hpp](../libs/netcore/include/netcore/rules.hpp), [rules.cpp](../libs/netcore/src/rules.cpp), [session.hpp](../libs/netcore/include/netcore/session.hpp), [session.cpp](../libs/netcore/src/session.cpp), testes e fuzzing em [test_netcore.cpp](../libs/netcore/tests/test_netcore.cpp).
+Todos os valores abaixo são hipóteses de balanceamento e ficam em `ta::Config` / `RulesConfig::territorial_assault()`.
 
 Plataforma-alvo: recompilação do **Xbox NTSC-U** (não PS2). Equipamentos: somente armas e itens **nativos de BLACK**
-(AGENTS.md §2.2). A economia de Supply Points vale só para este modo; o Deathmatch mantém a Loja `B` com créditos.
+(AGENTS.md §2.2). A economia de Supply Points (`15 SP`, `RulesConfig::territorial_assault()`) vale só para este modo; o Deathmatch mantém a Loja `B` com créditos (`RulesConfig::cs_loadout_deathmatch()`).
+
+## Mensagens `0xB1AC` (protocolo v4)
+
+- `TeamSelectRequest` (20, cliente → host, `Reliable`): escolha de equipe no Lobby (`team` 0 ou 1). Ignorado após o início da partida.
+- `TerritorialState` (21, host → clientes, `Unreliable`): estado autoritativo para o HUD (fase, equipe atacante, objetivo atual, progresso `0..1000`, tempo restante, overtime, ondas, placar R1/R2 e times por slot). Clientes que tentarem enviar esta mensagem são penalizados/expulsos (`KickReason::Malformed`).
+- `TerritorialEvent` (22, host → clientes, `Reliable`): eventos discretos (mudança de fase, objetivo capturado, onda de respawn, overtime, fim de rodada). Exclusivo do host.
 
 ## Lacunas do GDD resolvidas (ajustáveis após playtest)
 
@@ -28,5 +34,5 @@ Plataforma-alvo: recompilação do **Xbox NTSC-U** (não PS2). Equipamentos: som
 
 ## Próximos passos
 
-- Mensagens `0xB1AC` do modo (com validação de tamanho/limites e fuzzing) e integração no host.
-- Fase 2 em diante (mapas, spawns, zonas de captura) só depois que a base provar controle de entidades e combate local.
+- Expor seleção de modo `Territorial Assault`, equipe e HUD territorial no portal web (`src/mp/mp_bridge.cpp`, `src/web/web_main.cpp`, `web/`).
+- Fase 2 em diante (coordenadas reais de mapas de BLACK, spawns validados por geometria e zonas de captura in-level) com base nos endereços validados do `default.xbe` NTSC-U.

@@ -157,6 +157,32 @@ void test_protocol_roundtrip_all_messages() {
         .origin = Vec3{-10.0f, 0.0f, 18.0f},
         .damage = 80.0f,
     });
+    check_roundtrip(TeamSelectRequest{.team = 0});
+    check_roundtrip(TeamSelectRequest{.team = 1});
+    check_roundtrip(TerritorialState{
+        .tick = 1234,
+        .match_state = 2,
+        .attacker_team = 0,
+        .current_objective = 1,
+        .objective_count = 3,
+        .captured_count = 1,
+        .current_obj_state = 2,
+        .progress_permille = 450,
+        .time_left_s = 420,
+        .overtime = 0,
+        .attacker_waves = 8,
+        .defender_waves = 14,
+        .winner_team = kNoPlayer,
+        .player_teams = {0, 1, 0, kNoPlayer},
+        .r1_captured = 1,
+        .r1_progress_permille = 450,
+        .r1_time_s = 180,
+        .r2_captured = 0,
+        .r2_progress_permille = 0,
+        .r2_time_s = 0,
+    });
+    check_roundtrip(TerritorialEvent{.event_type = 1, .team = 0, .index = 0, .count = 1});
+    check_roundtrip(TerritorialEvent{.event_type = 2, .team = 1, .index = 0, .count = 2});
 }
 
 void test_hostile_and_malformed_inputs() {
@@ -237,6 +263,27 @@ void test_hostile_and_malformed_inputs() {
     CHECK(!is_valid(Message{BlastEvent{.attacker = 0, .target = 0, .weapon = 15, .flags = 0x80, .origin = Vec3{0, 0, 0}, .damage = 50.0f}}));
     CHECK(!is_valid(Message{BlastEvent{.attacker = 0, .target = 0, .weapon = kMaxWeapons, .flags = kBlastFlagClaim, .origin = Vec3{kWorldLimit + 10.0f, 0, 0}, .damage = 50.0f}}));
     CHECK(!is_valid(Message{Welcome{.player_id = 0, .max_players = 4, .tick_rate_hz = 30, .snapshot_rate_hz = 15, .game_mode = 9}}));
+    CHECK(!is_valid(Message{TeamSelectRequest{.team = 2}}));
+    CHECK(!is_valid(Message{TerritorialState{.match_state = 6, .objective_count = 2}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 0}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 17}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .captured_count = 3}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .progress_permille = 1001}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .overtime = 2}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .winner_team = 3}}));
+    CHECK(!is_valid(Message{TerritorialState{.objective_count = 2, .player_teams = {0, 2, kNoPlayer, kNoPlayer}}}));
+    CHECK(!is_valid(Message{TerritorialEvent{.event_type = 5, .team = 0, .index = 0, .count = 0}}));
+    CHECK(!is_valid(Message{TerritorialEvent{.event_type = 1, .team = 2, .index = 0, .count = 0}}));
+    CHECK(!is_valid(Message{TerritorialEvent{.event_type = 1, .team = 0, .index = 17, .count = 0}}));
+
+    // Truncamento e trailing bytes nas novas mensagens Territorial Assault
+    {
+        auto raw_ts = encode(TerritorialState{.tick = 5, .objective_count = 2});
+        CHECK(!raw_ts.empty());
+        CHECK(decode(std::span<const uint8_t>(raw_ts.data(), raw_ts.size() - 1)).error == DecodeError::Truncated);
+        raw_ts.push_back(0x00);
+        CHECK(decode(raw_ts).error == DecodeError::TrailingBytes);
+    }
 
     // 9. Fuzz determinístico (10.000 pacotes pseudoaleatórios nunca podem causar falha ou leitura inválida)
     std::mt19937 rng(0xB1AC2006u);
@@ -247,7 +294,7 @@ void test_hostile_and_malformed_inputs() {
         if (len >= 3 && (rng() % 2 == 0)) {
             buf[0] = uint8_t(kPacketMagic);
             buf[1] = uint8_t(kPacketMagic >> 8);
-            buf[2] = static_cast<uint8_t>(1 + (rng() % 19));
+            buf[2] = static_cast<uint8_t>(1 + (rng() % 22));
         }
         auto res = decode(buf);
         if (res.message.has_value()) {
@@ -903,6 +950,187 @@ void test_p3a_blast_weapon_mask_and_coop_ff() {
     CHECK(coop_host.slots()[0].health == 100);
 }
 
+void test_territorial_assault_host_client_match() {
+    auto rules = RulesConfig::territorial_assault();
+    rules.territorial.objective_count = 2;
+    rules.territorial.capture_ticks = 6;
+    rules.territorial.attacker_initial_waves = 2;
+    rules.territorial.defender_initial_waves = 2;
+    rules.territorial.wave_interval_ticks = 4;
+    rules.territorial.waves_per_objective = 3;
+    rules.territorial.max_waves = 10;
+    rules.territorial.initial_time_ticks = 60;
+    rules.territorial.bonus_time_ticks = 30;
+    rules.territorial.max_time_ticks = 90;
+    rules.territorial.overtime_cap_ticks = 10;
+    rules.objective_zones = {
+        CaptureZone{Vec3{20.0f, 0.0f, 0.0f}, 6.0f, 5.0f},
+        CaptureZone{Vec3{50.0f, 0.0f, 0.0f}, 6.0f, 5.0f},
+    };
+    rules.attacker_spawns = {SpawnPoint{Vec3{0.0f, 0.0f, 0.0f}, 0.0f}};
+    rules.defender_spawns = {SpawnPoint{Vec3{70.0f, 0.0f, 0.0f}, 3.14159f}};
+
+    LoopbackEndpoint host_ep, c1_ep, late_ep;
+    auto [h_c1, c1_h] = LoopbackEndpoint::link(host_ep, c1_ep);
+    auto [h_late, late_h] = LoopbackEndpoint::link(host_ep, late_ep);
+    (void)h_c1;
+    (void)h_late;
+
+    HostSession host(host_ep, rules, "HostA");
+    ClientSession c1(c1_ep, c1_h, rules, "ClientB");
+    CHECK(c1.send_hello());
+    for (int i = 0; i < 3; ++i) {
+        host.tick();
+        c1.poll();
+    }
+    CHECK(c1.is_joined() && c1.local_player_id() == 1);
+    CHECK(c1.game_mode() == static_cast<uint8_t>(GameMode::TerritorialAssault));
+    CHECK(c1.latest_territorial_state().has_value());
+    CHECK(c1.latest_territorial_state()->player_teams[0] == 0);
+    CHECK(c1.latest_territorial_state()->player_teams[1] == 1);
+
+    // Troca de equipe permitida no Lobby e depois restaurada para B
+    CHECK(c1.send_team_select(ta::Team::A));
+    host.tick();
+    c1.poll();
+    CHECK(host.slots()[1].team == 0);
+    CHECK(!host.enter_preparation());  // Equipe B vazia não pode iniciar
+    CHECK(c1.send_team_select(ta::Team::B));
+    host.tick();
+    c1.poll();
+    CHECK(host.slots()[1].team == 1);
+
+    // Entra em Preparação e valida orçamento de 15 Supply Points
+    CHECK(host.enter_preparation());
+    host.tick();
+    c1.poll();
+    CHECK(c1.latest_territorial_state()->match_state == static_cast<uint8_t>(ta::MatchState::Preparation));
+
+    // Cliente entrando tarde após início é recusado com NotAccepting
+    ClientSession late(late_ep, late_h, rules, "LateJoin");
+    CHECK(late.send_hello());
+    host.tick();
+    late.poll();
+    CHECK(late.is_rejected() && late.reject_reason() == RejectReason::NotAccepting);
+
+    // Sem arma primária -> rejeitado (GDD §5.3)
+    CHECK(!host.local_buy_loadout(LoadoutRequest{.primary_weapon = kNoWeapon, .secondary_weapon = 0, .tactical_flags = 0}));
+    CHECK(host.slot_loadout_state(0).last_result == static_cast<uint8_t>(LoadoutResult::InvalidItem));
+    // Estouro de orçamento (RPG-7=10 + Magnum=2 + Colete=3 + Tático=2 = 17 > 15) -> rejeitado
+    CHECK(!host.local_buy_loadout(LoadoutRequest{
+        .primary_weapon = 15, .secondary_weapon = 2, .tactical_flags = kLoadoutArmor | kLoadoutTactical}));
+    CHECK(host.slot_loadout_state(0).last_result == static_cast<uint8_t>(LoadoutResult::ExceedsBudgetCap));
+    // Kit válido: AK-47 (7) + DC3 (1) + Colete (3) + Tático (2) = 13 <= 15
+    CHECK(host.local_buy_loadout(LoadoutRequest{
+        .primary_weapon = 7, .secondary_weapon = 1, .tactical_flags = kLoadoutArmor | kLoadoutTactical}));
+    CHECK(c1.send_loadout_request(LoadoutRequest{.primary_weapon = 3, .secondary_weapon = 0, .tactical_flags = kLoadoutArmor}));
+    host.tick();
+    c1.poll();
+    CHECK(host.slots()[1].owned_primary == 3);
+
+    // Inicia Rodada 1 (Equipe A ataca, Equipe B defende)
+    CHECK(host.begin_next_round());
+    c1.poll();
+    CHECK(host.phase() == MatchPhase::Running);
+    CHECK(c1.latest_territorial_state()->match_state == static_cast<uint8_t>(ta::MatchState::Round1));
+    CHECK(c1.latest_territorial_state()->attacker_team == 0);
+
+    // Alteração de loadout bloqueada em combate (GDD §5.1)
+    CHECK(!host.local_buy_loadout(LoadoutRequest{.primary_weapon = 9, .secondary_weapon = 0, .tactical_flags = 0}));
+    CHECK(host.slot_loadout_state(0).last_result == static_cast<uint8_t>(LoadoutResult::BuyWindowClosed));
+
+    // Cliente morre (defensor), preserva loadout e reaparece na onda coletiva após 4 ticks
+    c1.clear_events();
+    CHECK(host.apply_damage(0, 1, 200, 7));
+    CHECK((host.slots()[1].flags & kFlagAlive) == 0);
+    CHECK(host.slots()[1].owned_primary == 3);  // kit preservado dentro da rodada
+    for (int i = 0; i < 4; ++i) {
+        host.tick();
+        c1.poll();
+    }
+    CHECK((host.slots()[1].flags & kFlagAlive) != 0);
+    CHECK(host.territorial_match()->waves(ta::Team::B) == 1);
+    bool saw_wave = false;
+    for (const auto& ev : c1.recent_territorial_events()) {
+        if (ev.event_type == static_cast<uint8_t>(ta::EventType::WaveSpawned) && ev.team == 1) saw_wave = true;
+    }
+    CHECK(saw_wave);
+
+    // Host (atacante) entra na zona do Objetivo 0 -> captura em 6 ticks
+    host.set_local_player_state(PlayerState{.position = Vec3{20.0f, 0.0f, 0.0f}, .weapon = 7, .flags = kFlagAlive});
+    c1.clear_events();
+    for (int i = 0; i < 6; ++i) {
+        host.tick();
+        c1.poll();
+    }
+    CHECK(host.territorial_match()->captured_count() == 1);
+    CHECK(host.territorial_match()->waves(ta::Team::A) == 5);  // 2 + 3 recompensa
+    bool saw_cap = false;
+    for (const auto& ev : c1.recent_territorial_events()) {
+        if (ev.event_type == static_cast<uint8_t>(ta::EventType::ObjectiveCaptured) && ev.index == 0) saw_cap = true;
+    }
+    CHECK(saw_cap);
+
+    // Host captura Objetivo 1 -> Rodada 1 encerra -> Intermission
+    host.set_local_player_state(PlayerState{.position = Vec3{50.0f, 0.0f, 0.0f}, .weapon = 7, .flags = kFlagAlive});
+    for (int i = 0; i < 6; ++i) {
+        host.tick();
+        c1.poll();
+    }
+    CHECK(host.territorial_match()->state() == ta::MatchState::Intermission);
+    CHECK(host.phase() == MatchPhase::Warmup);
+    CHECK(c1.latest_territorial_state()->match_state == static_cast<uint8_t>(ta::MatchState::Intermission));
+    CHECK(c1.latest_territorial_state()->r1_captured == 2);
+
+    // Em Intermission, troca de loadout volta a ser permitida
+    CHECK(host.local_buy_loadout(LoadoutRequest{.primary_weapon = 9, .secondary_weapon = 0, .tactical_flags = 0}));
+
+    // Rodada 2: funções invertidas (B ataca, A defende); B não captura nada até estourar o "tempo a bater" -> A vence
+    CHECK(host.begin_next_round());
+    c1.poll();
+    CHECK(c1.latest_territorial_state()->match_state == static_cast<uint8_t>(ta::MatchState::Round2));
+    CHECK(c1.latest_territorial_state()->attacker_team == 1);
+    for (int i = 0; i < 40; ++i) {
+        host.tick();
+        c1.poll();
+    }
+    CHECK(host.phase() == MatchPhase::Ended);
+    CHECK(host.winner() == 0);
+    CHECK(c1.phase() == MatchPhase::Ended);
+    CHECK(c1.winner() == 0);
+    CHECK(c1.latest_territorial_state()->winner_team == 0);
+
+    // Teste de segurança: cliente tentando falsificar TerritorialState é expulso (KickReason::Malformed)
+    // e fogo amigo entre aliados da mesma equipe é bloqueado.
+    LoopbackEndpoint sh_ep, s1_ep, s2_ep;
+    auto [sh_1, s1_h] = LoopbackEndpoint::link(sh_ep, s1_ep);
+    auto [sh_2, s2_h] = LoopbackEndpoint::link(sh_ep, s2_ep);
+    (void)sh_1;
+    (void)sh_2;
+    HostSession sec_host(sh_ep, rules, "SecHost");
+    ClientSession ally(s1_ep, s1_h, rules, "AllyA");
+    ClientSession foe(s2_ep, s2_h, rules, "FoeB");
+    CHECK(ally.send_hello() && foe.send_hello());
+    sec_host.tick();
+    ally.poll();
+    foe.poll();
+    CHECK(ally.send_team_select(ta::Team::A));
+    CHECK(foe.send_team_select(ta::Team::B));
+    sec_host.tick();
+    sec_host.start_match();
+    // Fogo amigo entre Host (0, A) e AllyA (1, A) bloqueado
+    CHECK(!sec_host.apply_damage(0, 1, 50, 7));
+    CHECK(sec_host.slots()[1].health == 100);
+    // Cliente envia TerritorialState falso (exclusivo do host) -> penalizado até kick
+    const auto fake_ta = encode(TerritorialState{.tick = 999, .objective_count = 2, .captured_count = 2});
+    for (int i = 0; i < rules.max_violations_before_kick + 1; ++i) {
+        s2_ep.send(s2_h, Channel::Reliable, fake_ta);
+        sec_host.tick();
+        foe.poll();
+    }
+    CHECK(foe.is_kicked() && foe.kick_reason() == KickReason::Malformed);
+}
+
 int main() {
     test_protocol_roundtrip_all_messages();
     test_hostile_and_malformed_inputs();
@@ -911,6 +1139,7 @@ int main() {
     test_host_apply_damage_and_kill_attribution();
     test_cs_loadout_economy_and_limits();
     test_p3a_blast_weapon_mask_and_coop_ff();
+    test_territorial_assault_host_client_match();
     std::printf("[netcore_tests] All protocol, fuzzing, session and security tests PASSED.\n");
     return 0;
 }

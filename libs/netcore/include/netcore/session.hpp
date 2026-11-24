@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -14,6 +15,7 @@
 
 #include "netcore/protocol.hpp"
 #include "netcore/rules.hpp"
+#include "netcore/territorial.hpp"
 #include "netcore/transport.hpp"
 
 namespace netcore {
@@ -22,6 +24,7 @@ struct HostPlayerSlot {
     bool occupied = false;
     bool is_local_host = false;
     uint8_t player_id = 0;
+    uint8_t team = 0;  // 0=Team A, 1=Team B (usado em TerritorialAssault)
     PeerId peer = kInvalidPeer;
     std::string name;
 
@@ -62,7 +65,16 @@ public:
     HostSession(ITransport& transport, RulesConfig rules, std::string host_name = "Host");
 
     // Inicia a partida (Warmup -> Running), posicionando todos os jogadores conectados nos spawns.
+    // Em TerritorialAssault, transita Lobby -> Preparation -> Round1 (ou Intermission -> Round2).
     void start_match();
+
+    // Controles específicos do modo Territorial Assault (Lobby -> Preparation -> Round1/Round2).
+    bool set_player_team(uint8_t player_id, ta::Team team);
+    bool enter_preparation();
+    bool begin_next_round();
+    const ta::TerritorialMatch* territorial_match() const { return ta_match_.get(); }
+    TerritorialState current_territorial_state() const;
+    const std::vector<TerritorialEvent>& recent_territorial_events() const { return recent_ta_events_; }
 
     // Atualiza os pontos de respawn da partida para coordenadas reais da fase sem alterar rules_hash_.
     void set_spawn_points(std::vector<SpawnPoint> spawns);
@@ -103,6 +115,7 @@ public:
     void clear_events() {
         recent_fires_.clear();
         recent_blasts_.clear();
+        recent_ta_events_.clear();
     }
 
 private:
@@ -113,6 +126,10 @@ private:
     void handle_fire(HostPlayerSlot& shooter, const FireEvent& msg);
     void handle_blast(HostPlayerSlot& sender, const BlastEvent& msg);
     void handle_loadout_request(HostPlayerSlot& slot, const LoadoutRequest& msg);
+    void handle_team_select(HostPlayerSlot& slot, const TeamSelectRequest& msg);
+    void drain_territorial_events();
+    void spawn_player_for_territorial_role(HostPlayerSlot& slot, uint8_t spawn_cursor);
+    void broadcast_territorial_state();
 
     bool apply_validated_fire(HostPlayerSlot& shooter, const FireEvent& msg);
     bool apply_validated_blast(HostPlayerSlot* sender, const BlastEvent& msg);
@@ -144,6 +161,9 @@ private:
     std::array<HostPlayerSlot, kMaxPlayers> slots_{};
     std::vector<FireEvent> recent_fires_;
     std::vector<BlastEvent> recent_blasts_;
+    std::vector<TerritorialEvent> recent_ta_events_;
+    std::unique_ptr<ta::TerritorialMatch> ta_match_;
+    uint32_t ta_intermission_remaining_ = 0;
     std::unordered_map<PeerId, uint16_t> unauthenticated_packets_;
     std::unordered_map<PeerId, uint8_t> unauthenticated_violations_;
 };
@@ -164,6 +184,9 @@ public:
 
     // Envia pedido de compra/equipamento de loadout ao host (canal confiável).
     bool send_loadout_request(const LoadoutRequest& req);
+
+    // Envia pedido de escolha de equipe no Lobby do Territorial Assault (canal confiável).
+    bool send_team_select(ta::Team team);
 
     // Envia um Ping para medir RTT e relógio do host.
     bool send_ping(uint32_t nonce, uint32_t now_ms);
@@ -197,6 +220,8 @@ public:
         return player_id < kMaxPlayers ? player_names_[player_id] : std::string{};
     }
     std::optional<Pong> last_pong() const { return last_pong_; }
+    const std::optional<TerritorialState>& latest_territorial_state() const { return latest_ta_state_; }
+    const std::vector<TerritorialEvent>& recent_territorial_events() const { return recent_ta_events_; }
 
     void clear_events() {
         recent_fires_.clear();
@@ -205,6 +230,7 @@ public:
         recent_deaths_.clear();
         recent_respawns_.clear();
         recent_loadouts_.clear();
+        recent_ta_events_.clear();
     }
 
 private:
@@ -232,6 +258,8 @@ private:
     std::array<std::string, kMaxPlayers> player_names_{};
     std::vector<LoadoutState> recent_loadouts_;
     std::optional<Pong> last_pong_;
+    std::optional<TerritorialState> latest_ta_state_;
+    std::vector<TerritorialEvent> recent_ta_events_;
     uint8_t active_arena_id_ = 0;
     uint8_t game_mode_ = 0;
     uint32_t available_weapon_mask_ = 0xFFFFFFFFu;

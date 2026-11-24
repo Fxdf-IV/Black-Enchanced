@@ -35,6 +35,9 @@ NETCORE_TRAIT(LoadoutRequest);
 NETCORE_TRAIT(LoadoutState);
 NETCORE_TRAIT(PlayerRoster);
 NETCORE_TRAIT(BlastEvent);
+NETCORE_TRAIT(TeamSelectRequest);
+NETCORE_TRAIT(TerritorialState);
+NETCORE_TRAIT(TerritorialEvent);
 #undef NETCORE_TRAIT
 
 // ---- validação -----------------------------------------------------------------------------
@@ -74,12 +77,12 @@ bool valid_name(const std::string& s) {
 bool valid(const Hello& m) { return valid_name(m.name); }
 bool valid(const Welcome& m) {
     return valid_player(m.player_id) && m.max_players >= 1 && m.max_players <= kMaxPlayers && m.tick_rate_hz >= 1 &&
-           m.tick_rate_hz <= 240 && m.snapshot_rate_hz >= 1 && m.snapshot_rate_hz <= 240 && m.game_mode <= 1u;
+           m.tick_rate_hz <= 240 && m.snapshot_rate_hz >= 1 && m.snapshot_rate_hz <= 240 && m.game_mode <= 2u;
 }
 bool valid(const Reject& m) {
     return m.reason >= RejectReason::ProtocolMismatch && m.reason <= RejectReason::NotAccepting;
 }
-bool valid(const MatchStart& m) { return m.game_mode <= 1u; }
+bool valid(const MatchStart& m) { return m.game_mode <= 2u; }
 bool valid(const MatchEnd& m) { return valid_player_or_none(m.winner); }
 bool valid(const PlayerState& m) {
     return valid_position(m.position) && valid_angle(m.yaw) && valid_angle(m.pitch) && valid_velocity(m.velocity) &&
@@ -136,6 +139,24 @@ bool valid(const BlastEvent& m) {
     return valid_player_or_none(m.attacker) && valid_player_or_none(m.target) && valid_weapon_or_none(m.weapon) &&
            (m.flags & ~uint8_t(kBlastFlagClaim | kBlastFlagVisualOnly)) == 0 && valid_position(m.origin) &&
            finite(m.damage) && m.damage >= 0.0f && m.damage <= 250.0f;
+}
+bool valid(const TeamSelectRequest& m) { return m.team <= 1u; }
+bool valid(const TerritorialState& m) {
+    if (m.match_state > 5u || m.attacker_team > 1u || m.objective_count < 1u ||
+        m.objective_count > kMaxTerritorialObjectives || m.captured_count > m.objective_count ||
+        m.current_objective > m.objective_count || m.current_obj_state > 5u || m.progress_permille > 1000u ||
+        m.overtime > 1u || (m.winner_team > 1u && m.winner_team != kNoPlayer) ||
+        m.r1_captured > m.objective_count || m.r2_captured > m.objective_count ||
+        m.r1_progress_permille > 1000u || m.r2_progress_permille > 1000u) {
+        return false;
+    }
+    for (uint8_t t : m.player_teams) {
+        if (t > 1u && t != kNoPlayer) return false;
+    }
+    return true;
+}
+bool valid(const TerritorialEvent& m) {
+    return m.event_type <= 4u && m.team <= 1u && m.index <= kMaxTerritorialObjectives;
 }
 
 // ---- escrita -------------------------------------------------------------------------------
@@ -270,6 +291,35 @@ void write(ByteWriter& w, const BlastEvent& m) {
     w.u8(m.flags);
     put(w, m.origin);
     w.f32(m.damage);
+}
+void write(ByteWriter& w, const TeamSelectRequest& m) { w.u8(m.team); }
+void write(ByteWriter& w, const TerritorialState& m) {
+    w.u32(m.tick);
+    w.u8(m.match_state);
+    w.u8(m.attacker_team);
+    w.u8(m.current_objective);
+    w.u8(m.objective_count);
+    w.u8(m.captured_count);
+    w.u8(m.current_obj_state);
+    w.u16(m.progress_permille);
+    w.u16(m.time_left_s);
+    w.u8(m.overtime);
+    w.u16(m.attacker_waves);
+    w.u16(m.defender_waves);
+    w.u8(m.winner_team);
+    for (uint8_t t : m.player_teams) w.u8(t);
+    w.u8(m.r1_captured);
+    w.u16(m.r1_progress_permille);
+    w.u16(m.r1_time_s);
+    w.u8(m.r2_captured);
+    w.u16(m.r2_progress_permille);
+    w.u16(m.r2_time_s);
+}
+void write(ByteWriter& w, const TerritorialEvent& m) {
+    w.u8(m.event_type);
+    w.u8(m.team);
+    w.u8(m.index);
+    w.u16(m.count);
 }
 
 // ---- leitura -------------------------------------------------------------------------------
@@ -448,6 +498,40 @@ bool read(ByteReader& r, BlastEvent& m) {
     m.damage = r.f32();
     return true;
 }
+bool read(ByteReader& r, TeamSelectRequest& m) {
+    m.team = r.u8();
+    return true;
+}
+bool read(ByteReader& r, TerritorialState& m) {
+    m.tick = r.u32();
+    m.match_state = r.u8();
+    m.attacker_team = r.u8();
+    m.current_objective = r.u8();
+    m.objective_count = r.u8();
+    m.captured_count = r.u8();
+    m.current_obj_state = r.u8();
+    m.progress_permille = r.u16();
+    m.time_left_s = r.u16();
+    m.overtime = r.u8();
+    m.attacker_waves = r.u16();
+    m.defender_waves = r.u16();
+    m.winner_team = r.u8();
+    for (uint8_t& t : m.player_teams) t = r.u8();
+    m.r1_captured = r.u8();
+    m.r1_progress_permille = r.u16();
+    m.r1_time_s = r.u16();
+    m.r2_captured = r.u8();
+    m.r2_progress_permille = r.u16();
+    m.r2_time_s = r.u16();
+    return true;
+}
+bool read(ByteReader& r, TerritorialEvent& m) {
+    m.event_type = r.u8();
+    m.team = r.u8();
+    m.index = r.u8();
+    m.count = r.u16();
+    return true;
+}
 
 template <class T>
 DecodeResult finish(ByteReader& r) {
@@ -470,6 +554,7 @@ Channel channel_for(MessageType t) {
     switch (t) {
         case MessageType::PlayerState:
         case MessageType::WorldSnapshot:
+        case MessageType::TerritorialState:
         case MessageType::Ping:
         case MessageType::Pong:
             return Channel::Unreliable;
@@ -523,6 +608,9 @@ DecodeResult decode(std::span<const uint8_t> in) {
         case MessageType::LoadoutState: return finish<LoadoutState>(r);
         case MessageType::PlayerRoster: return finish<PlayerRoster>(r);
         case MessageType::BlastEvent: return finish<BlastEvent>(r);
+        case MessageType::TeamSelectRequest: return finish<TeamSelectRequest>(r);
+        case MessageType::TerritorialState: return finish<TerritorialState>(r);
+        case MessageType::TerritorialEvent: return finish<TerritorialEvent>(r);
     }
     return {std::nullopt, DecodeError::UnknownType};
 }

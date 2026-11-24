@@ -1,8 +1,21 @@
 #include "netcore/rules.hpp"
 
 #include <bit>
+#include <cmath>
 
 namespace netcore {
+
+bool CaptureZone::contains(const Vec3& p) const {
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(center.x) ||
+        !std::isfinite(center.y) || !std::isfinite(center.z) || !std::isfinite(radius) || !std::isfinite(half_height) ||
+        radius <= 0.0f || half_height <= 0.0f) {
+        return false;
+    }
+    const float dx = p.x - center.x;
+    const float dz = p.z - center.z;
+    const float dy = std::fabs(p.y - center.y);
+    return (dx * dx + dz * dz) <= (radius * radius) && dy <= half_height;
+}
 
 namespace {
 
@@ -56,6 +69,63 @@ RulesConfig RulesConfig::cs_loadout_deathmatch() {
     return cfg;
 }
 
+RulesConfig RulesConfig::territorial_assault() {
+    RulesConfig cfg = default_deathmatch();
+    cfg.game_mode = GameMode::TerritorialAssault;
+    cfg.friendly_fire = false;
+    cfg.kill_limit = 0;  // vitória é exclusivamente territorial (GDD §8.3)
+    cfg.time_limit_s = 600;
+    cfg.fixed_budget_mode = true;
+    cfg.enforce_loadout = true;
+    cfg.starting_credits = 15;
+    cfg.max_credits = 15;  // Supply Points individuais fixos (GDD §5.1)
+    cfg.kill_reward_credits = 0;
+    cfg.death_bonus_credits = 0;
+    cfg.armor_price = 3;
+    cfg.tactical_price = 2;
+    cfg.buy_window_ticks = 0;  // controlado por fase (Preparation/Intermission abertos; combate bloqueado)
+
+    // Preços em Supply Points para o arsenal nativo de BLACK (AGENTS.md §2.2).
+    const uint16_t sp_prices[16] = {
+        0,   // 0: Glock 19 (secundária padrão)
+        1,   // 1: DC3 Elite
+        2,   // 2: Magnum
+        4,   // 3: MP5
+        3,   // 4: MAC-10
+        3,   // 5: Uzi
+        5,   // 6: P90
+        7,   // 7: AK-47
+        7,   // 8: M16A2
+        6,   // 9: G36C
+        5,   // 10: SPAS-12
+        4,   // 11: Remington 870
+        9,   // 12: M249 SAW
+        9,   // 13: WA2000
+        8,   // 14: M203
+        10,  // 15: RPG-7
+    };
+    for (auto& w : cfg.weapons) {
+        if (w.id < 16) w.price = sp_prices[w.id];
+    }
+
+    cfg.territorial = ta::Config{};
+    cfg.territorial.objective_count = 2;  // protótipo inicial: 2 objetivos sequenciais (GDD §17)
+    cfg.territorial.supply_points = 15;
+    cfg.objective_zones = {
+        CaptureZone{Vec3{20.0f, 0.0f, 0.0f}, 8.0f, 5.0f},
+        CaptureZone{Vec3{50.0f, 0.0f, 0.0f}, 8.0f, 5.0f},
+    };
+    cfg.attacker_spawns = {
+        SpawnPoint{Vec3{0.0f, 0.0f, -4.0f}, 0.0f},
+        SpawnPoint{Vec3{0.0f, 0.0f, 4.0f}, 0.0f},
+    };
+    cfg.defender_spawns = {
+        SpawnPoint{Vec3{70.0f, 0.0f, -4.0f}, 3.14159f},
+        SpawnPoint{Vec3{70.0f, 0.0f, 4.0f}, 3.14159f},
+    };
+    return cfg;
+}
+
 uint32_t RulesConfig::compute_hash() const {
     uint32_t h = 2166136261u;
     h = fnv1a_u32(h, tick_rate_hz);
@@ -87,6 +157,22 @@ uint32_t RulesConfig::compute_hash() const {
         h = fnv1a_u32(h, std::bit_cast<uint32_t>(w.max_range));
         h = fnv1a_u32(h, static_cast<uint8_t>(w.slot));
         h = fnv1a_u32(h, w.price);
+    }
+    if (game_mode == GameMode::TerritorialAssault) {
+        h = fnv1a_u32(h, territorial.objective_count);
+        h = fnv1a_u32(h, territorial.capture_ticks);
+        h = fnv1a_u32(h, territorial.attacker_initial_waves);
+        h = fnv1a_u32(h, territorial.defender_initial_waves);
+        h = fnv1a_u32(h, territorial.wave_interval_ticks);
+        h = fnv1a_u32(h, territorial.waves_per_objective);
+        h = fnv1a_u32(h, territorial.max_waves);
+        h = fnv1a_u32(h, territorial.initial_time_ticks);
+        h = fnv1a_u32(h, territorial.bonus_time_ticks);
+        h = fnv1a_u32(h, territorial.max_time_ticks);
+        h = fnv1a_u32(h, territorial.overtime_enabled ? 1u : 0u);
+        h = fnv1a_u32(h, territorial.overtime_cap_ticks);
+        h = fnv1a_u32(h, territorial.round2_early_end ? 1u : 0u);
+        h = fnv1a_u32(h, territorial.supply_points);
     }
     return h;
 }

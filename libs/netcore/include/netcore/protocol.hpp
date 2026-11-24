@@ -5,6 +5,7 @@
 // O corpo de Hello é CONGELADO (versão u16 primeiro) para que versões diferentes ainda consigam
 // se recusar com uma mensagem clara.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -37,6 +38,9 @@ enum class MessageType : uint8_t {
     LoadoutState = 17,
     PlayerRoster = 18,
     BlastEvent = 19,
+    TeamSelectRequest = 20,
+    TerritorialState = 21,
+    TerritorialEvent = 22,
 };
 
 // Os dois canais que todo transporte precisa oferecer (ENet: canais; WebRTC: dois data channels).
@@ -276,9 +280,50 @@ struct BlastEvent {
     friend bool operator==(const BlastEvent&, const BlastEvent&) = default;
 };
 
+// cliente -> host (confiável): solicita escolha de equipe no Lobby do Territorial Assault (0=A, 1=B).
+struct TeamSelectRequest {
+    uint8_t team = 0;
+    friend bool operator==(const TeamSelectRequest&, const TeamSelectRequest&) = default;
+};
+
+// host -> clientes (não confiável): estado autoritativo da partida Territorial Assault para o HUD.
+struct TerritorialState {
+    uint32_t tick = 0;
+    uint8_t match_state = 0;        // ta::MatchState (0..5)
+    uint8_t attacker_team = 0;      // 0=A, 1=B
+    uint8_t current_objective = 0;  // 0..objective_count
+    uint8_t objective_count = 1;    // 1..kMaxTerritorialObjectives
+    uint8_t captured_count = 0;     // 0..objective_count
+    uint8_t current_obj_state = 0;  // ta::ObjectiveState (0..5)
+    uint16_t progress_permille = 0; // 0..1000
+    uint16_t time_left_s = 0;
+    uint8_t overtime = 0;           // 0 ou 1
+    uint16_t attacker_waves = 0;
+    uint16_t defender_waves = 0;
+    uint8_t winner_team = kNoPlayer;  // 0=A, 1=B, kNoPlayer=nenhum/empate
+    std::array<uint8_t, kMaxPlayers> player_teams = {kNoPlayer, kNoPlayer, kNoPlayer, kNoPlayer};
+    uint8_t r1_captured = 0;
+    uint16_t r1_progress_permille = 0;
+    uint16_t r1_time_s = 0;
+    uint8_t r2_captured = 0;
+    uint16_t r2_progress_permille = 0;
+    uint16_t r2_time_s = 0;
+    friend bool operator==(const TerritorialState&, const TerritorialState&) = default;
+};
+
+// host -> clientes (confiável): evento discreto de Territorial Assault (captura, onda, overtime, fim de rodada).
+struct TerritorialEvent {
+    uint8_t event_type = 0;  // ta::EventType (0..4)
+    uint8_t team = 0;        // 0=A, 1=B
+    uint8_t index = 0;       // índice de objetivo, novo estado ou RoundEndReason
+    uint16_t count = 0;      // jogadores revividos ou objetivos capturados
+    friend bool operator==(const TerritorialEvent&, const TerritorialEvent&) = default;
+};
+
 using Message = std::variant<Hello, Welcome, Reject, MatchStart, MatchEnd, PlayerState, WorldSnapshot, FireEvent,
                              DamageEvent, DeathEvent, RespawnEvent, Ping, Pong, Leave, Kick, LoadoutRequest,
-                             LoadoutState, PlayerRoster, BlastEvent>;
+                             LoadoutState, PlayerRoster, BlastEvent, TeamSelectRequest, TerritorialState,
+                             TerritorialEvent>;
 
 MessageType type_of(const Message& m);
 
