@@ -489,9 +489,17 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
     };
     const std::string escaped = escape_json(msg);
 
+    char cambuf[160] = "null";
+    if (tel.has_local_cam) {
+        std::snprintf(cambuf, sizeof(cambuf),
+                      "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"fx\":%.3f,\"fy\":%.3f,\"fz\":%.3f}",
+                      static_cast<double>(tel.cam_x), static_cast<double>(tel.cam_y),
+                      static_cast<double>(tel.cam_z), static_cast<double>(tel.cam_fx),
+                      static_cast<double>(tel.cam_fy), static_cast<double>(tel.cam_fz));
+    }
     std::string json;
-    json.reserve(2048);
-    char hdr[768];
+    json.reserve(3072);
+    char hdr[1024];
     const int hdr_len = std::snprintf(
         hdr, sizeof(hdr),
         "{\"bootState\":%d,\"bootMessage\":\"%s\",\"hasWebGpu\":%s,\"gpuReady\":%s,\"canvasW\":%u,\"canvasH\":%u,"
@@ -500,9 +508,11 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
         "\"frames\":%llu,\"audioFrames\":%llu,"
         "\"primaryWeapon\":%u,\"secondaryWeapon\":%u,\"activeWeapon\":%u,\"activeSlot\":%u,\"tacticalFlags\":%u,"
         "\"lastLoadoutResult\":%u,\"credits\":%u,\"maxCredits\":%u,\"kitCost\":%u,\"buyTicksLeft\":%u,"
-        "\"fixedBudget\":%s,\"enforceLoadout\":%s,\"hp\":%u,\"kills\":%u,\"deaths\":%u,"
+        "\"fixedBudget\":%s,\"enforceLoadout\":%s,\"hp\":%u,\"localAlive\":%s,\"kills\":%u,\"deaths\":%u,"
         "\"hitmarkerSeq\":%llu,\"engineWeaponCount\":%u,\"activeEngineWeaponId\":%u,"
-        "\"arenaId\":%u,\"gameMode\":%u,\"availableWeaponMask\":%u,\"players\":[",
+        "\"arenaId\":%u,\"gameMode\":%u,\"availableWeaponMask\":%u,"
+        "\"cam\":%s,"
+        "\"players\":[",
         web_stats::g_boot_state.load(std::memory_order_relaxed), escaped.c_str(),
         app::g_has_webgpu.load(std::memory_order_relaxed) ? "true" : "false",
         web_stats::g_gpu_ready.load(std::memory_order_relaxed) ? "true" : "false",
@@ -523,11 +533,12 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
         static_cast<unsigned>(tel.credits), static_cast<unsigned>(tel.max_credits),
         static_cast<unsigned>(tel.kit_cost), static_cast<unsigned>(tel.buy_ticks_left),
         tel.fixed_budget_mode ? "true" : "false", tel.enforce_loadout ? "true" : "false",
-        static_cast<unsigned>(tel.local_health), static_cast<int>(tel.local_kills),
+        static_cast<unsigned>(tel.local_health), tel.local_alive ? "true" : "false",
+        static_cast<int>(tel.local_kills),
         static_cast<int>(tel.local_deaths), static_cast<unsigned long long>(tel.hitmarker_seq),
         static_cast<unsigned>(tel.engine_weapon_count), static_cast<unsigned>(tel.active_engine_weapon_id),
         static_cast<unsigned>(tel.arena_id), static_cast<unsigned>(tel.game_mode),
-        static_cast<unsigned>(tel.available_weapon_mask));
+        static_cast<unsigned>(tel.available_weapon_mask), cambuf);
     if (hdr_len > 0) json.append(hdr, static_cast<std::size_t>(std::min<int>(hdr_len, sizeof(hdr) - 1)));
 
     bool first_p = true;
@@ -536,24 +547,26 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
         if (!first_p) json.push_back(',');
         first_p = false;
         const std::string pname = escape_json(p.name.empty() ? ("Operador " + std::to_string(p.player_id + 1)) : p.name);
-        char prow[256];
+        char prow[320];
         const int plen = std::snprintf(
             prow, sizeof(prow),
-            "{\"id\":%u,\"team\":%u,\"name\":\"%s\",\"alive\":%s,\"hp\":%u,\"kills\":%u,\"deaths\":%u,\"weapon\":%u,\"primary\":%u,\"secondary\":%u,\"tactical\":%u}",
+            "{\"id\":%u,\"team\":%u,\"name\":\"%s\",\"alive\":%s,\"hp\":%u,\"kills\":%u,\"deaths\":%u,\"weapon\":%u,\"primary\":%u,\"secondary\":%u,\"tactical\":%u,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}",
             static_cast<unsigned>(p.player_id), static_cast<unsigned>(p.team), pname.c_str(), p.alive ? "true" : "false",
             static_cast<unsigned>(p.health), static_cast<int>(p.kills), static_cast<int>(p.deaths),
             static_cast<unsigned>(p.weapon), static_cast<unsigned>(p.primary_weapon),
-            static_cast<unsigned>(p.secondary_weapon), static_cast<unsigned>(p.tactical_flags));
+            static_cast<unsigned>(p.secondary_weapon), static_cast<unsigned>(p.tactical_flags),
+            static_cast<double>(p.pos_x), static_cast<double>(p.pos_y), static_cast<double>(p.pos_z));
         if (plen > 0) json.append(prow, static_cast<std::size_t>(std::min<int>(plen, sizeof(prow) - 1)));
     }
     if (tel.ta_active) {
-        char tabuf[512];
+        char tabuf[640];
         const int talen = std::snprintf(
             tabuf, sizeof(tabuf),
             "],\"ta\":{\"state\":%u,\"attackerTeam\":%u,\"localTeam\":%u,\"currentObj\":%u,\"objCount\":%u,"
             "\"captured\":%u,\"objState\":%u,\"progress\":%u,\"timeLeft\":%u,\"overtime\":%s,"
             "\"atkWaves\":%u,\"defWaves\":%u,\"atkWaveEta\":%u,\"defWaveEta\":%u,"
-            "\"zoneAtk\":%u,\"zoneDef\":%u,\"hasBeacon\":%s,\"inZone\":%s,\"distM\":%.1f,\"bearingDeg\":%d,"
+            "\"zoneAtk\":%u,\"zoneDef\":%u,\"hasBeacon\":%s,\"inZone\":%s,\"distM\":%.1f,\"bearingDeg\":%d,\"elevDeg\":%d,"
+            "\"zx\":%.2f,\"zy\":%.2f,\"zz\":%.2f,\"zr\":%.1f,"
             "\"winner\":%u,\"r1Cap\":%u,\"r1Prog\":%u,\"r1Time\":%u,\"r2Cap\":%u,\"r2Prog\":%u,\"r2Time\":%u}}",
             static_cast<unsigned>(tel.ta_match_state), static_cast<unsigned>(tel.ta_attacker_team),
             static_cast<unsigned>(tel.ta_local_team), static_cast<unsigned>(tel.ta_current_objective),
@@ -565,6 +578,9 @@ int32_t BlackWebGetStatusJson(char* out_buf, uint32_t max_len) {
             static_cast<unsigned>(tel.ta_zone_attackers), static_cast<unsigned>(tel.ta_zone_defenders),
             tel.ta_has_beacon ? "true" : "false", tel.ta_in_zone ? "true" : "false",
             static_cast<double>(tel.ta_dist_m), static_cast<int>(tel.ta_bearing_deg),
+            static_cast<int>(tel.ta_elev_deg), static_cast<double>(tel.ta_zone_x),
+            static_cast<double>(tel.ta_zone_y), static_cast<double>(tel.ta_zone_z),
+            static_cast<double>(tel.ta_zone_radius),
             static_cast<unsigned>(tel.ta_winner_team), static_cast<unsigned>(tel.ta_r1_captured),
             static_cast<unsigned>(tel.ta_r1_progress_permille), static_cast<unsigned>(tel.ta_r1_time_s),
             static_cast<unsigned>(tel.ta_r2_captured), static_cast<unsigned>(tel.ta_r2_progress_permille),

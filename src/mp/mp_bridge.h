@@ -30,6 +30,9 @@ struct HudPlayerRow {
     uint8_t tactical_flags = 0;
     int16_t kills = 0;
     int16_t deaths = 0;
+    float pos_x = 0.0f;
+    float pos_y = 0.0f;
+    float pos_z = 0.0f;
     std::string name;
 };
 
@@ -55,8 +58,16 @@ struct BridgeTelemetry {
     bool fixed_budget_mode = false;
     bool enforce_loadout = false;
     uint8_t local_health = 100;
+    bool local_alive = true;
     int16_t local_kills = 0;
     int16_t local_deaths = 0;
+    bool has_local_cam = false;
+    float cam_x = 0.0f;
+    float cam_y = 0.0f;
+    float cam_z = 0.0f;
+    float cam_fx = 0.0f;
+    float cam_fy = 0.0f;
+    float cam_fz = 1.0f;
     uint64_t hitmarker_seq = 0;
     uint32_t engine_weapon_count = 0;
     uint8_t active_engine_weapon_id = 0xFF;
@@ -93,6 +104,11 @@ struct BridgeTelemetry {
     bool ta_in_zone = false;
     float ta_dist_m = 0.0f;
     int16_t ta_bearing_deg = 0;
+    int16_t ta_elev_deg = 0;
+    float ta_zone_x = 0.0f;
+    float ta_zone_y = 0.0f;
+    float ta_zone_z = 0.0f;
+    float ta_zone_radius = 0.0f;
 
     std::array<HudPlayerRow, netcore::kMaxPlayers> players{};
 };

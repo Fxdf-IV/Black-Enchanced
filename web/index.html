@@ -1090,6 +1090,240 @@
       letter-spacing: 0.04em;
     }
 
+    /* Marcador 3D de Objetivo projetado no Viewport */
+    .ta-waypoint {
+      position: absolute;
+      z-index: 12;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      transition: left 60ms linear, top 60ms linear;
+      will-change: left, top;
+    }
+
+    .ta-waypoint-diamond {
+      width: 30px;
+      height: 30px;
+      border-radius: 2px;
+      transform: rotate(45deg);
+      background: rgba(9, 10, 13, 0.86);
+      border: 2px solid var(--accent);
+      box-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
+      display: grid;
+      place-items: center;
+    }
+
+    .ta-waypoint[data-state="contested"] .ta-waypoint-diamond {
+      border-color: var(--err);
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.65);
+    }
+
+    .ta-waypoint[data-state="inzone"] .ta-waypoint-diamond {
+      border-color: var(--ok);
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.65);
+    }
+
+    .ta-waypoint-letter {
+      transform: rotate(-45deg);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+
+    .ta-waypoint-dist {
+      padding: 1px 6px;
+      border-radius: 2px;
+      background: rgba(9, 10, 13, 0.85);
+      border: 1px solid var(--border-strong);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    /* Minimapa / Radar Tático (canto inferior esquerdo acima do HUD de armas) */
+    .ta-radar-wrap {
+      position: absolute;
+      left: 12px;
+      bottom: 52px;
+      z-index: 13;
+      width: 146px;
+      padding: 4px;
+      border-radius: var(--radius);
+      background: rgba(9, 10, 13, 0.84);
+      border: 1px solid var(--border-strong);
+      border-left: 2px solid var(--accent);
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+    }
+
+    .ta-radar-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      padding: 0 2px;
+    }
+
+    #ta-radar {
+      width: 136px;
+      height: 136px;
+      display: block;
+      border-radius: 2px;
+      background: radial-gradient(circle at center, rgba(20, 24, 32, 0.92), rgba(9, 10, 13, 0.96));
+    }
+
+    /* Kill Feed tático (canto superior direito) */
+    .ta-killfeed {
+      position: absolute;
+      top: 96px;
+      right: 12px;
+      z-index: 13;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      max-width: 310px;
+    }
+
+    .ta-kf-row {
+      padding: 4px 8px;
+      border-radius: 2px;
+      background: rgba(9, 10, 13, 0.86);
+      border: 1px solid var(--border-strong);
+      border-right: 2px solid var(--accent);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    }
+
+    .ta-kf-row[data-tone="obj"] {
+      border-right-color: var(--ok);
+      color: #a7f3d0;
+    }
+
+    .ta-kf-row[data-tone="kill"] {
+      border-right-color: var(--err);
+    }
+
+    .ta-kf-wpn {
+      padding: 0 5px;
+      border-radius: 2px;
+      background: var(--bg-elevated);
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    /* Banner de Transição de Fase / Evento */
+    .ta-event-banner {
+      position: absolute;
+      top: 122px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      pointer-events: none;
+      padding: 10px 22px;
+      border-radius: 2px;
+      background: rgba(9, 10, 13, 0.92);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-right: 3px solid var(--accent);
+      text-align: center;
+      min-width: 280px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.72);
+    }
+
+    .ta-event-banner[data-tone="atk"] {
+      border-left-color: var(--err);
+      border-right-color: var(--err);
+    }
+
+    .ta-event-banner[data-tone="def"] {
+      border-left-color: #38bdf8;
+      border-right-color: #38bdf8;
+    }
+
+    .ta-event-banner[data-tone="ok"] {
+      border-left-color: var(--ok);
+      border-right-color: var(--ok);
+    }
+
+    .ta-event-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+    }
+
+    .ta-event-sub {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+
+    /* Overlay de Fim de Partida */
+    .results-hero {
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      background: var(--bg-base);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .results-hero[data-outcome="win"] {
+      border-left-color: var(--ok);
+    }
+
+    .results-hero[data-outcome="loss"] {
+      border-left-color: var(--err);
+    }
+
+    .results-rounds {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .results-round-card {
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
     .ta-actions-row {
       display: flex;
       align-items: center;
@@ -1519,6 +1753,29 @@
             <button id="btn-ta-start-round" class="hud-chip active hidden" type="button">Iniciar Rodada</button>
           </div>
         </div>
+      </div>
+
+      <!-- Marcador 3D de Objetivo, Radar Tático, Kill Feed e Banner de Fase (exclusivos Territorial Assault) -->
+      <div id="ta-waypoint" class="ta-waypoint hidden" data-state="active">
+        <div class="ta-waypoint-diamond">
+          <span id="ta-waypoint-letter" class="ta-waypoint-letter">A</span>
+        </div>
+        <span id="ta-waypoint-dist" class="ta-waypoint-dist">24m</span>
+      </div>
+
+      <div id="ta-radar-wrap" class="ta-radar-wrap hidden">
+        <div class="ta-radar-head">
+          <span>RADAR TÁTICO</span>
+          <span id="ta-radar-scale">35m</span>
+        </div>
+        <canvas id="ta-radar" width="136" height="136"></canvas>
+      </div>
+
+      <div id="ta-killfeed" class="ta-killfeed hidden"></div>
+
+      <div id="ta-event-banner" class="ta-event-banner hidden" data-tone="atk">
+        <div id="ta-event-title" class="ta-event-title">RODADA 1 · ATAQUE</div>
+        <div id="ta-event-sub" class="ta-event-sub">Capture os objetivos sequenciais antes das ondas acabarem.</div>
       </div>
 
       <!-- Barra discreta durante telas de título e menus do Xbox (!inLevel) -->
@@ -1964,6 +2221,49 @@
             </thead>
             <tbody id="overlay-score-body"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Tela de Fim de Partida (Territorial Assault Results) -->
+      <div id="overlay-results" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 720px;">
+          <div class="modal-head">
+            <span class="modal-title">Fim de Partida · Territorial Assault</span>
+            <span id="results-map-pill" class="role-pill">MAPA</span>
+          </div>
+          <div id="results-hero" class="results-hero" data-outcome="draw">
+            <div>
+              <div id="results-headline" style="font-family: var(--font-display); font-size: 24px; font-weight: 800; letter-spacing: 0.06em;">VITÓRIA</div>
+              <div id="results-sub" class="opfs-status" style="margin-top: 3px;">Partida encerrada após 2 rodadas com troca de lados.</div>
+            </div>
+            <div id="results-kda" class="mono" style="font-size: 13px; color: var(--accent);">0 ABATES · 0 MORTES</div>
+          </div>
+          <div class="results-rounds">
+            <div class="results-round-card">
+              <span class="tel-label">Rodada 1 (Time A no Ataque)</span>
+              <strong id="results-r1-val">0 objetivos · 00:00</strong>
+            </div>
+            <div class="results-round-card">
+              <span class="tel-label">Rodada 2 (Time B no Ataque)</span>
+              <strong id="results-r2-val">0 objetivos · 00:00</strong>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Operador</th>
+                <th>Time</th>
+                <th>Kit</th>
+                <th>Abates</th>
+                <th>Mortes</th>
+              </tr>
+            </thead>
+            <tbody id="results-score-body"></tbody>
+          </table>
+          <div class="btn-row" style="justify-content: flex-end;">
+            <button id="btn-results-menu" class="btn" type="button">Sair para o Menu</button>
+            <button id="btn-results-rematch" class="btn btn-ok" type="button">↺ Novo Mapa / Voltar ao Lobby</button>
+          </div>
         </div>
       </div>
     </div>

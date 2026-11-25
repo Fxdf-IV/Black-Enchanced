@@ -399,11 +399,13 @@ function setOverlay(name) {
   const lobby = document.getElementById("overlay-lobby");
   const options = document.getElementById("overlay-options");
   const buy = document.getElementById("overlay-buy");
+  const results = document.getElementById("overlay-results");
 
   launcher?.classList.toggle("hidden", name !== "launcher");
   lobby?.classList.toggle("hidden", name !== "lobby");
   options?.classList.toggle("hidden", name !== "options");
   buy?.classList.toggle("hidden", name !== "buy");
+  results?.classList.toggle("hidden", name !== "results");
 
   if (name !== "none") {
     state.keys.clear();
@@ -425,6 +427,9 @@ function setOverlay(name) {
   if (name === "options") {
     syncEnhancedControlsUi();
     syncRoomFieldsToUi();
+  }
+  if (name === "results") {
+    renderResultsModal(engine.status);
   }
   updateViewportChrome();
   updateLoadingOverlay();
@@ -477,6 +482,12 @@ function updateViewportChrome() {
   document.getElementById("hud-strip")?.classList.toggle("hidden", !(mp && inLvl && engine.activeOverlay === "none"));
   const showTaHud = isTA && engine.bootStarted && inLvl && engine.activeOverlay === "none" && Boolean(st?.ta);
   document.getElementById("ta-hud")?.classList.toggle("hidden", !showTaHud);
+  document.getElementById("ta-radar-wrap")?.classList.toggle("hidden", !showTaHud);
+  document.getElementById("ta-killfeed")?.classList.toggle("hidden", !showTaHud);
+  if (!showTaHud) {
+    document.getElementById("ta-waypoint")?.classList.add("hidden");
+    document.getElementById("ta-event-banner")?.classList.add("hidden");
+  }
   wrap?.classList.toggle("ta-active", showTaHud);
   // Barra de assist de menu do Xbox aparece APENAS na Campanha Solo (no Multiplayer vai direto ao mapa).
   document.getElementById("menu-assist-bar")?.classList.toggle(
@@ -1928,6 +1939,380 @@ function startEngineTickLoop() {
   if (!engine.saveSyncTimerId) engine.saveSyncTimerId = setInterval(() => flushCampaignSaveIdbfs(false), 2500);
 }
 
+const taHudFx = {
+  prevPhase: -1,
+  prevCaptured: -1,
+  prevOvertime: false,
+  prevAtkWaves: -1,
+  prevDefWaves: -1,
+  prevPlayers: new Map(),
+  killFeed: [],
+  bannerUntil: 0,
+  resultsOpened: false,
+};
+
+function pushTaKillFeed(html, tone = "info") {
+  const now = performance.now();
+  taHudFx.killFeed.unshift({ html, tone, expiresAt: now + 5500 });
+  if (taHudFx.killFeed.length > 4) taHudFx.killFeed.length = 4;
+  renderTaKillFeed();
+}
+
+function renderTaKillFeed() {
+  const el = document.getElementById("ta-killfeed");
+  if (!el) return;
+  const now = performance.now();
+  taHudFx.killFeed = taHudFx.killFeed.filter((item) => item.expiresAt > now);
+  if (taHudFx.killFeed.length === 0) {
+    if (el.childElementCount > 0) el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = taHudFx.killFeed
+    .map((item) => `<div class="ta-kf-row" data-tone="${item.tone}">${item.html}</div>`)
+    .join("");
+}
+
+function showTaEventBanner(title, sub, tone = "atk", durationMs = 3400) {
+  const el = document.getElementById("ta-event-banner");
+  if (!el) return;
+  const tEl = document.getElementById("ta-event-title");
+  const sEl = document.getElementById("ta-event-sub");
+  el.dataset.tone = tone;
+  if (tEl) tEl.textContent = title;
+  if (sEl) sEl.textContent = sub;
+  taHudFx.bannerUntil = performance.now() + durationMs;
+  el.classList.remove("hidden");
+}
+
+function renderTaWaypoint(st, ta) {
+  const wp = document.getElementById("ta-waypoint");
+  if (!wp) return;
+  const phase = Number(ta.state || 0);
+  const inActiveRound = phase === 2 || phase === 4;
+  if (!inActiveRound || !ta.hasBeacon || !st?.inLevel || engine.activeOverlay !== "none") {
+    wp.classList.add("hidden");
+    return;
+  }
+  const objLetter = "ABCDEFGH"[Number(ta.currentObj || 0)] || "A";
+  const contested = Number(ta.objState || 0) === 2;
+  const inZone = Boolean(ta.inZone);
+  const distM = Math.max(0, Math.round(Number(ta.distM || 0)));
+  const bearingDeg = Number(ta.bearingDeg || 0);
+  const elevDeg = Number(ta.elevDeg || 0);
+  const hFov = Math.max(60, Math.min(115, Number(state.enhanced.fovDeg || 88)));
+  const vFov = hFov * (9 / 16);
+
+  const inFront = Math.abs(bearingDeg) < 88;
+  let sx = 50;
+  let sy = 50;
+  if (inFront) {
+    const tanHalfH = Math.tan(((hFov * 0.5) * Math.PI) / 180);
+    const tanHalfV = Math.tan(((vFov * 0.5) * Math.PI) / 180);
+    const bRad = (bearingDeg * Math.PI) / 180;
+    const eRad = (elevDeg * Math.PI) / 180;
+    const nx = Math.tan(bRad) / Math.max(0.15, tanHalfH);
+    const ny = Math.tan(eRad) / Math.max(0.15, tanHalfV);
+    sx = 50 + nx * 42;
+    sy = 50 - ny * 40;
+  } else {
+    sx = bearingDeg >= 0 ? 92 : 8;
+    sy = 56;
+  }
+
+  const clampedX = Math.max(7, Math.min(93, sx));
+  const clampedY = Math.max(18, Math.min(82, sy));
+  const offScreen = !inFront || sx < 7 || sx > 93 || sy < 18 || sy > 82;
+
+  wp.style.left = `${clampedX.toFixed(1)}%`;
+  wp.style.top = `${clampedY.toFixed(1)}%`;
+  wp.dataset.state = inZone ? "inzone" : contested ? "contested" : "active";
+  wp.classList.remove("hidden");
+
+  const letterEl = document.getElementById("ta-waypoint-letter");
+  const distEl = document.getElementById("ta-waypoint-dist");
+  if (letterEl) letterEl.textContent = objLetter;
+  if (distEl) {
+    if (inZone) {
+      distEl.textContent = contested ? `CONTESTADO` : `NA ZONA`;
+    } else if (offScreen) {
+      const dir = bearingDeg >= 0 ? "►" : "◄";
+      distEl.textContent = `${dir} ${distM}m`;
+    } else {
+      distEl.textContent = `${distM}m`;
+    }
+  }
+}
+
+function renderTaRadar(st, ta) {
+  const canvas = document.getElementById("ta-radar");
+  if (!canvas || !st?.cam || !st?.inLevel || engine.activeOverlay !== "none") return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const rangeM = 35.0;
+  const scale = (w * 0.45) / rangeM;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Anéis táticos de alcance (15m / 30m) e cruz central
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.16)";
+  ctx.lineWidth = 1;
+  for (const rM of [15, 30]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, rM * scale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(cx, 6);
+  ctx.lineTo(cx, h - 6);
+  ctx.moveTo(6, cy);
+  ctx.lineTo(w - 6, cy);
+  ctx.stroke();
+
+  const cam = st.cam;
+  const fLen = Math.hypot(cam.fx || 0, cam.fz || 1) || 1;
+  const fx = (cam.fx || 0) / fLen;
+  const fz = (cam.fz || 1) / fLen;
+  const rx = fz;
+  const rz = -fx;
+
+  const toRadar = (wx, wz) => {
+    const dx = wx - cam.x;
+    const dz = wz - cam.z;
+    const localR = dx * rx + dz * rz;
+    const localF = dx * fx + dz * fz;
+    let px = cx + localR * scale;
+    let py = cy - localF * scale;
+    const dist = Math.hypot(px - cx, py - cy);
+    const maxR = w * 0.45;
+    if (dist > maxR) {
+      px = cx + ((px - cx) / dist) * maxR;
+      py = cy + ((py - cy) / dist) * maxR;
+    }
+    return { px, py, clamped: dist > maxR };
+  };
+
+  // Norte (N) na borda do radar
+  const nPos = toRadar(cam.x, cam.z + rangeM * 1.1);
+  ctx.fillStyle = "rgba(245, 158, 11, 0.8)";
+  ctx.font = "bold 9px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("N", nPos.px, nPos.py);
+
+  // Zona de captura ativa
+  const phase = Number(ta.state || 0);
+  if ((phase === 2 || phase === 4) && Number(ta.zr || 0) > 0.1) {
+    const zp = toRadar(Number(ta.zx || 0), Number(ta.zz || 0));
+    const zrPx = Math.max(6, Math.min(26, Number(ta.zr || 7.5) * scale));
+    const contested = Number(ta.objState || 0) === 2;
+    const inZone = Boolean(ta.inZone);
+    ctx.fillStyle = inZone
+      ? "rgba(16, 185, 129, 0.22)"
+      : contested
+        ? "rgba(239, 68, 68, 0.25)"
+        : "rgba(245, 158, 11, 0.18)";
+    ctx.strokeStyle = inZone ? "#10b981" : contested ? "#ef4444" : "#f59e0b";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(zp.px, zp.py, zrPx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    const objLetter = "ABCDEFGH"[Number(ta.currentObj || 0)] || "A";
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = "bold 10px monospace";
+    ctx.fillText(objLetter, zp.px, zp.py + 0.5);
+  }
+
+  // Operadores aliados e adversários próximos
+  const localId = st.localSlot ?? state.localPlayerId;
+  const localTeam = Number(ta.localTeam || 0);
+  if (Array.isArray(st.players)) {
+    for (const p of st.players) {
+      if (!p.alive || p.id === localId) continue;
+      const sameTeam = Number(p.team || 0) === localTeam;
+      const d = Math.hypot((p.x || 0) - cam.x, (p.z || 0) - cam.z);
+      if (!sameTeam && d > 30) continue;
+      const pt = toRadar(Number(p.x || 0), Number(p.z || 0));
+      ctx.fillStyle = sameTeam ? "#38bdf8" : "#ef4444";
+      ctx.beginPath();
+      ctx.arc(pt.px, pt.py, sameTeam ? 3.5 : 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Jogador local (seta branca no centro apontando para frente)
+  ctx.fillStyle = "#f8fafc";
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 5);
+  ctx.lineTo(cx + 4, cy + 4);
+  ctx.lineTo(cx, cy + 2);
+  ctx.lineTo(cx - 4, cy + 4);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function renderResultsModal(st) {
+  if (!st?.ta) return;
+  const ta = st.ta;
+  const localTeam = Number(ta.localTeam || 0);
+  const winner = Number(ta.winner ?? 255);
+  const outcome = winner === 255 ? "draw" : winner === localTeam ? "win" : "loss";
+
+  const hero = document.getElementById("results-hero");
+  const headline = document.getElementById("results-headline");
+  const sub = document.getElementById("results-sub");
+  const kda = document.getElementById("results-kda");
+  const mapPill = document.getElementById("results-map-pill");
+  const r1El = document.getElementById("results-r1-val");
+  const r2El = document.getElementById("results-r2-val");
+  const tbody = document.getElementById("results-score-body");
+
+  if (hero) hero.dataset.outcome = outcome;
+  if (headline) {
+    headline.textContent =
+      outcome === "win"
+        ? `VITÓRIA · TIME ${localTeam === 0 ? "A" : "B"}`
+        : outcome === "loss"
+          ? `DERROTA · VENCEDOR TIME ${winner === 0 ? "A" : "B"}`
+          : "EMPATE TÁTICO";
+  }
+  if (sub) {
+    sub.textContent = `Sala ${state.roomCode} · ${levelLabel(st.arenaId)} · 2 rodadas com troca de lados`;
+  }
+  if (kda) kda.textContent = `${st.kills || 0} ABATES · ${st.deaths || 0} MORTES`;
+  if (mapPill) mapPill.textContent = levelLabel(st.arenaId).toUpperCase();
+  if (r1El) {
+    r1El.textContent = `${ta.r1Cap || 0}/${ta.objCount || 2} objetivos (${Math.round((ta.r1Prog || 0) / 10)}%) · ${formatClock(ta.r1Time)}`;
+  }
+  if (r2El) {
+    r2El.textContent = `${ta.r2Cap || 0}/${ta.objCount || 2} objetivos (${Math.round((ta.r2Prog || 0) / 10)}%) · ${formatClock(ta.r2Time)}`;
+  }
+
+  if (tbody) {
+    const localId = st.localSlot ?? state.localPlayerId;
+    const rows = Array.isArray(st.players)
+      ? [...st.players].sort((a, b) => (a.team ?? 0) - (b.team ?? 0) || b.kills - a.kills)
+      : [];
+    tbody.innerHTML = "";
+    for (const op of rows) {
+      const kit =
+        op.primary !== undefined && op.primary !== NO_WEAPON
+          ? `${weaponNameById(op.primary)} + ${weaponNameById(op.secondary)}`
+          : weaponNameById(op.secondary ?? op.weapon ?? 0);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${op.name}${op.id === localId ? " (VOCÊ)" : ""}</td>
+        <td><span class="team-tag ${(op.team ?? 0) === 0 ? "team-a" : "team-b"}">${(op.team ?? 0) === 0 ? "TIME A" : "TIME B"}</span></td>
+        <td class="mono">${kit}</td>
+        <td class="mono">${op.kills}</td>
+        <td class="mono">${op.deaths}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+}
+
+function updateTaDynamicEvents(st, ta) {
+  const phase = Number(ta.state || 0);
+  const localTeam = Number(ta.localTeam || 0);
+  const atkTeam = Number(ta.attackerTeam || 0);
+  const isAttacker = localTeam === atkTeam;
+
+  // Transições de fase -> banner tático central
+  if (taHudFx.prevPhase !== -1 && taHudFx.prevPhase !== phase) {
+    if (phase === 2) {
+      showTaEventBanner(
+        `RODADA 1 · ${isAttacker ? "ATAQUE" : "DEFESA"}`,
+        isAttacker ? "Avance e capture os objetivos em sequência." : "Segure a linha e esgote as ondas atacantes.",
+        isAttacker ? "atk" : "def",
+        3800,
+      );
+    } else if (phase === 3) {
+      showTaEventBanner(
+        "INTERVALO · TROCA DE LADOS",
+        "Papéis invertidos na Rodada 2. Pressione [B] para ajustar seu kit de 15 SP.",
+        "ok",
+        4200,
+      );
+      pushTaKillFeed("INTERVALO — TROCA DE LADOS (RODADA 2)", "obj");
+    } else if (phase === 4) {
+      showTaEventBanner(
+        `RODADA 2 · ${isAttacker ? "ATAQUE" : "DEFESA"}`,
+        isAttacker ? `Bata o placar da R1 (${ta.r1Cap} obj em ${formatClock(ta.r1Time)}).` : "Defenda o território até o fim do tempo.",
+        isAttacker ? "atk" : "def",
+        3800,
+      );
+    } else if (phase === 5 && !taHudFx.resultsOpened) {
+      taHudFx.resultsOpened = true;
+      setOverlay("results");
+    }
+  }
+  if (phase !== 5) taHudFx.resultsOpened = false;
+
+  // Captura de objetivo
+  const captured = Number(ta.captured || 0);
+  if (taHudFx.prevCaptured !== -1 && captured > taHudFx.prevCaptured && (phase === 2 || phase === 4)) {
+    const letter = "ABCDEFGH"[Math.max(0, captured - 1)] || "A";
+    showTaEventBanner(`OBJETIVO ${letter} CAPTURADO!`, "Reforços concedidos aos atacantes · Avance ao próximo setor.", "ok", 3400);
+    pushTaKillFeed(`OBJETIVO ${letter} CAPTURADO`, "obj");
+  }
+
+  // Overtime
+  if (!taHudFx.prevOvertime && Boolean(ta.overtime)) {
+    showTaEventBanner("OVERTIME!", "Dispute a zona ativa — sem atacantes na zona a rodada encerra.", "atk", 3200);
+    pushTaKillFeed("OVERTIME ATIVADO", "obj");
+  }
+
+  // Detecção de abates/mortes para Kill Feed
+  if (Array.isArray(st.players)) {
+    const killers = [];
+    const victims = [];
+    for (const p of st.players) {
+      const prev = taHudFx.prevPlayers.get(p.id);
+      if (prev) {
+        if (p.kills > prev.kills) killers.push(p);
+        if (p.deaths > prev.deaths) victims.push(p);
+      }
+      taHudFx.prevPlayers.set(p.id, {
+        kills: p.kills,
+        deaths: p.deaths,
+        alive: p.alive,
+        name: p.name,
+        weapon: p.weapon,
+      });
+    }
+    for (let i = 0; i < victims.length; i++) {
+      const v = victims[i];
+      const k = killers[i] || killers[0];
+      if (k && k.id !== v.id) {
+        const wName = weaponNameById(k.weapon ?? k.primary ?? 0);
+        pushTaKillFeed(`<strong>${k.name}</strong> <span class="ta-kf-wpn">${wName}</span> <strong>${v.name}</strong>`, "kill");
+      } else {
+        pushTaKillFeed(`<strong>${v.name}</strong> foi eliminado`, "kill");
+      }
+    }
+  }
+
+  // Ocultar banner após expirar
+  const bannerEl = document.getElementById("ta-event-banner");
+  if (bannerEl && !bannerEl.classList.contains("hidden") && performance.now() > taHudFx.bannerUntil) {
+    bannerEl.classList.add("hidden");
+  }
+  renderTaKillFeed();
+
+  taHudFx.prevPhase = phase;
+  taHudFx.prevCaptured = captured;
+  taHudFx.prevOvertime = Boolean(ta.overtime);
+  taHudFx.prevAtkWaves = Number(ta.atkWaves ?? -1);
+  taHudFx.prevDefWaves = Number(ta.defWaves ?? -1);
+}
+
 function renderTerritorialHud(st) {
   const hud = document.getElementById("ta-hud");
   if (!hud || !isTerritorialMode() || !st?.ta) return;
@@ -2102,6 +2487,10 @@ function renderTerritorialHud(st) {
       }
     }
   }
+
+  updateTaDynamicEvents(st, ta);
+  renderTaWaypoint(st, ta);
+  renderTaRadar(st, ta);
 }
 
 function updateTelemetryUi() {
@@ -2749,6 +3138,17 @@ function bindEvents() {
     startSession("offline");
     setOverlay("launcher");
     switchLauncherTab("mp");
+  });
+  document.getElementById("btn-results-rematch")?.addEventListener("click", () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("room", state.roomCode);
+    url.searchParams.set("map", String(((state.lobby.mapIndex ?? 0) + 1) % BLACK_MAPS.length));
+    window.location.href = url.toString();
+  });
+  document.getElementById("btn-results-menu")?.addEventListener("click", () => {
+    const url = new URL(window.location.href);
+    url.search = "";
+    window.location.href = url.toString();
   });
   document.getElementById("btn-ta-team-a")?.addEventListener("click", (e) => {
     e.currentTarget?.blur?.();
